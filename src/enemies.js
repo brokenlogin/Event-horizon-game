@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { integrate, periapsisEstimate, accelAt, occludedByHole, ARENA_RADIUS } from './physics.js';
+import { integrate, periapsisEstimate, accelAt, occludedByHole, ARENA_RADIUS, RS } from './physics.js';
 import { buildRaider, buildWarden, buildSeeker } from './ships.js';
 import { Trail } from './fx.js';
 
@@ -109,7 +109,11 @@ export class Enemy {
     const engaged = player.alive && dist < def.engageRange;
 
     const radialVel = this.vel.dot(this.pos) / Math.max(r, 1e-3);
-    if (r < 600 || (rp < 560 && radialVel < 0)) {
+    // look ahead along the current heading: would we pass inside the hole's shadow?
+    const v2 = this.vel.lengthSq() || 1;
+    const tc = THREE.MathUtils.clamp(-this.pos.dot(this.vel) / v2, 0, 4);
+    const cpa = _tmp2.copy(this.pos).addScaledVector(this.vel, tc).length();
+    if (r < 600 || (rp < 560 && radialVel < 0) || cpa < RS * 2.8) {
       // falling toward the hole: burn prograde + radial-out to climb
       _des.copy(this.vel).normalize().multiplyScalar(0.8).addScaledVector(_tmp2.copy(this.pos).normalize(), 0.6).normalize();
       this.thrust.copy(_des).multiplyScalar(accel * 1.15);

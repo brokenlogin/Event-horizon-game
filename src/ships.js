@@ -329,3 +329,233 @@ export function buildMissile() {
   group.scale.setScalar(1.3);
   return { group, flame: flames[0] };
 }
+
+// ---------------------------------------------------------------------------
+// Space station — same design language as the player's interceptor:
+// pale alloy hull, gunmetal structure, cyan light strips. The docking port is
+// at the -Z end; a rotating habitat ring sits amidships.
+// ---------------------------------------------------------------------------
+function solarTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0b1a3a';
+  g.fillRect(0, 0, 256, 128);
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 16; x++) {
+      const l = 30 + Math.random() * 18;
+      g.fillStyle = `hsl(222, 60%, ${l}%)`;
+      g.fillRect(x * 16 + 1, y * 16 + 1, 14, 14);
+    }
+  }
+  g.strokeStyle = 'rgba(180,210,255,0.5)';
+  g.lineWidth = 1;
+  g.strokeRect(0.5, 0.5, 255, 127);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+export function buildStation() {
+  const group = new THREE.Group();
+  const hull = new THREE.MeshStandardMaterial({ color: 0xd4dce8, metalness: 0.65, roughness: 0.32, envMapIntensity: 1.6 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x252c3a, metalness: 0.8, roughness: 0.4, envMapIntensity: 1.2 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x061624, metalness: 1, roughness: 0.05, emissive: 0x0b6a8a, emissiveIntensity: 0.45 });
+  const accent = new THREE.MeshBasicMaterial({ color: hdr(0x5ef2ff, 3) });
+  const accentDim = new THREE.MeshBasicMaterial({ color: hdr(0x5ef2ff, 1.3) });
+  const warm = new THREE.MeshBasicMaterial({ color: hdr(0xffa040, 2.6) });
+  const panel = new THREE.MeshStandardMaterial({ map: solarTexture(), metalness: 0.55, roughness: 0.3, emissive: 0x0a1630, envMapIntensity: 1.8 });
+  const zCyl = (rt, rb, len, seg, mat) => new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, len, seg).rotateX(Math.PI / 2), mat);
+
+  // --- spine ---
+  const spine = zCyl(4.5, 4.5, 96, 16, hull);
+  group.add(spine);
+  for (let z = -36; z <= 36; z += 12) {
+    const band = zCyl(5.3, 5.3, 1.6, 16, dark);
+    band.position.z = z;
+    group.add(band);
+    const strip = zCyl(5.4, 5.4, 0.25, 16, accentDim);
+    strip.position.z = z + 1.0;
+    group.add(strip);
+  }
+
+  // --- command module (hexagonal, glazed) ---
+  const cmd = zCyl(11, 11, 14, 6, hull);
+  cmd.position.z = -24;
+  group.add(cmd);
+  const cmdGlass = zCyl(11.25, 11.25, 2.6, 6, glass);
+  cmdGlass.position.z = -24;
+  group.add(cmdGlass);
+  for (const z of [-31.2, -16.8]) {
+    const cap = zCyl(11.4, 11.4, 0.6, 6, accent);
+    cap.position.z = z;
+    group.add(cap);
+  }
+  const nose = zCyl(4.5, 11, 6, 6, dark);
+  nose.position.z = -34;
+  group.add(nose);
+
+  // --- docking port + approach guide lights ---
+  const arm = zCyl(3.2, 4.5, 12, 12, dark);
+  arm.position.z = -43;
+  group.add(arm);
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(4.2, 0.7, 10, 32), hull);
+  collar.position.z = -49.5;
+  group.add(collar);
+  const collarGlow = new THREE.Mesh(new THREE.TorusGeometry(4.2, 0.22, 8, 32), accent);
+  collarGlow.position.z = -50.3;
+  group.add(collarGlow);
+  const guides = [];
+  const guideMat = new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0x5ef2ff, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  for (let i = 0; i < 8; i++) {
+    for (const [x, y] of [[6, 0], [-6, 0], [0, 6], [0, -6]]) {
+      const s = new THREE.Sprite(guideMat.clone());
+      s.position.set(x, y, -56 - i * 9);
+      s.scale.setScalar(1.6);
+      s.userData.i = i;
+      group.add(s);
+      guides.push(s);
+    }
+  }
+
+  // --- rotating habitat ring ---
+  const ring = new THREE.Group();
+  ring.position.z = 6;
+  group.add(ring);
+  ring.add(new THREE.Mesh(new THREE.TorusGeometry(38, 3.4, 16, 120), hull));
+  const windows = new THREE.Mesh(new THREE.TorusGeometry(41.3, 0.4, 6, 120), accentDim);
+  ring.add(windows);
+  for (const off of [-2.6, 2.6]) {
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(38, 0.25, 6, 120), accent);
+    rim.position.z = off;
+    ring.add(rim);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(2.4, 31, 2.4), dark);
+    spoke.position.set(Math.cos(a) * 20, Math.sin(a) * 20, 0);
+    spoke.rotation.z = a - Math.PI / 2;
+    ring.add(spoke);
+    const pod = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 9), hull);
+    pod.position.set(Math.cos(a + Math.PI / 4) * 38, Math.sin(a + Math.PI / 4) * 38, 0);
+    pod.rotation.z = a + Math.PI / 4;
+    ring.add(pod);
+  }
+  const hub = zCyl(8, 8, 9, 16, dark);
+  ring.add(hub);
+  const hubGlow = zCyl(8.15, 8.15, 0.6, 16, accent);
+  ring.add(hubGlow);
+
+  // --- solar arrays ---
+  for (const s of [1, -1]) {
+    const boom = new THREE.Mesh(new THREE.BoxGeometry(62, 1.2, 1.2), dark);
+    boom.position.set(s * 33, 0, 30);
+    group.add(boom);
+    for (const px of [20, 44]) {
+      for (const pz of [-1, 1]) {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(20, 0.3, 11), panel);
+        p.position.set(s * px, 0, 30 + pz * 6.4);
+        group.add(p);
+      }
+    }
+    const tipLight = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), new THREE.MeshBasicMaterial({ color: hdr(s > 0 ? 0x20ff60 : 0xff2030, 5) }));
+    tipLight.position.set(s * 64, 0, 30);
+    tipLight.userData.beacon = true;
+    group.add(tipLight);
+  }
+
+  // --- radiators ---
+  for (const s of [1, -1]) {
+    const rad = new THREE.Mesh(new THREE.BoxGeometry(0.4, 24, 9), hull);
+    rad.position.set(0, s * 17, 40);
+    group.add(rad);
+    const radStrip = new THREE.Mesh(new THREE.BoxGeometry(0.5, 22, 0.3), warm);
+    radStrip.position.set(0, s * 17, 40);
+    group.add(radStrip);
+  }
+
+  // --- drive section ---
+  const drive = zCyl(6.5, 8, 9, 16, dark);
+  drive.position.z = 50;
+  group.add(drive);
+  const nozzleGlow = new THREE.Mesh(new THREE.CircleGeometry(5.6, 24), new THREE.MeshBasicMaterial({ color: hdr(0x3fb8ff, 1.6) }));
+  nozzleGlow.position.z = 54.6;
+  group.add(nozzleGlow);
+
+  // --- station-keeping thrusters (fire toward the hole to hold the slow orbit) ---
+  const keepers = [];
+  for (const sx of [1, -1]) {
+    for (const z of [-24, 50]) {
+      const pod = new THREE.Mesh(new THREE.BoxGeometry(3, 3.4, 4), dark);
+      pod.position.set(sx * (z < 0 ? 11.6 : 8.4), 0, z);
+      group.add(pod);
+      const pivot = new THREE.Group();
+      pivot.position.set(sx * (z < 0 ? 13.2 : 10), 0, z);
+      pivot.rotation.y = sx * Math.PI / 2;   // flame +Z -> ±X
+      group.add(pivot);
+      const list = [];
+      addFlame(pivot, 0, 0, 0, 1.1, 0x7fd8ff, list);
+      keepers.push({ ...list[0], dir: new THREE.Vector3(sx, 0, 0) });
+    }
+  }
+
+  // --- antenna dish on the command module ---
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 12, 6), dark);
+  mast.position.set(0, 16, -24);
+  group.add(mast);
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(5, 20, 10, 0, Math.PI * 2, 0, 0.65), hull);
+  dish.material = hull.clone();
+  dish.material.side = THREE.DoubleSide;
+  dish.position.set(0, 22, -24);
+  dish.rotation.x = Math.PI;
+  group.add(dish);
+  const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), new THREE.MeshBasicMaterial({ color: hdr(0xffffff, 6) }));
+  strobe.position.set(0, 22.6, -24);
+  strobe.userData.strobe = true;
+  group.add(strobe);
+
+  // a soft light so the ship looks lit while docked
+  const lamp = new THREE.PointLight(0x9fe8ff, 600, 140, 2);
+  lamp.position.set(0, 10, -60);
+  group.add(lamp);
+
+  const beacons = [];
+  group.traverse((o) => { if (o.userData.beacon || o.userData.strobe) beacons.push(o); });
+
+  return {
+    group, ring, guides, beacons, keepers,
+    portLocal: new THREE.Vector3(0, 0, -51),
+    dockedShipLocal: new THREE.Vector3(0, 0, -54.4),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Salvageable wreck: a tumbling cluster of scorched hull plates with a
+// pulsing green salvage beacon.
+// ---------------------------------------------------------------------------
+const wreckGeos = [
+  new THREE.TetrahedronGeometry(1.2), new THREE.BoxGeometry(2.2, 0.4, 1.4),
+  new THREE.OctahedronGeometry(0.9), new THREE.BoxGeometry(1.2, 0.3, 2.6),
+];
+for (const g of wreckGeos) g.userData.shared = true;
+
+export function buildWreck(glowHex) {
+  const group = new THREE.Group();
+  const scorched = new THREE.MeshStandardMaterial({ color: 0x3a343c, metalness: 0.7, roughness: 0.6, flatShading: true });
+  const ember = new THREE.MeshStandardMaterial({ color: 0x2a2024, metalness: 0.5, roughness: 0.7, flatShading: true, emissive: new THREE.Color(glowHex), emissiveIntensity: 1.6 });
+  const n = 5 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(wreckGeos[i % wreckGeos.length], i % 3 === 0 ? ember : scorched);
+    m.position.set((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 4);
+    m.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+    m.scale.setScalar(0.7 + Math.random() * 0.9);
+    group.add(m);
+  }
+  const beacon = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: getGlowTexture(), color: hdr(0x6dff9a, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true,
+  }));
+  beacon.scale.setScalar(7);
+  group.add(beacon);
+  return { group, beacon, ember };
+}

@@ -177,6 +177,39 @@ export class GameAudio {
     [0, 0.1, 0.2, 0.3].forEach((d, i) => setTimeout(() => this.beep([523, 659, 784, 1046][i], 0.3, 0.06, 'triangle'), d * 1000));
   }
 
+  pickup() {
+    if (!this.ctx) return;
+    [0, 0.07, 0.14].forEach((d, i) => setTimeout(() => this.beep([880, 1320, 1760][i], 0.12, 0.06, 'sine'), d * 1000));
+  }
+
+  purchase() {
+    if (!this.ctx) return;
+    this.beep(660, 0.08, 0.06, 'triangle');
+    setTimeout(() => this.beep(990, 0.14, 0.06, 'triangle'), 70);
+  }
+
+  dockClamp() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+    const g = ctx.createGain(); this._env(g, t, 0.5, 0.005, 0.35);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t, Math.random()); src.stop(t + 0.5);
+    const o = ctx.createOscillator(); o.type = 'square';
+    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.25);
+    const og = ctx.createGain(); this._env(og, t, 0.12, 0.005, 0.25);
+    o.connect(og).connect(this.master); o.start(t); o.stop(t + 0.3);
+  }
+
+  alarm() {
+    if (!this.ctx) return;
+    [0, 0.25, 0.5].forEach((d) => setTimeout(() => {
+      this.beep(740, 0.16, 0.07, 'sawtooth');
+      setTimeout(() => this.beep(555, 0.16, 0.07, 'sawtooth'), 110);
+    }, d * 1000));
+  }
+
   setLockTone(on) {
     if (!this.ctx) return;
     this.lockGain.gain.setTargetAtTime(on ? 0.035 : 0, this.ctx.currentTime, 0.02);

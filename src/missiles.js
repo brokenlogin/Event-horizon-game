@@ -24,6 +24,15 @@ const FUSE = 5;                                // proximity fuse (plus target ra
 const DAMAGE = 12;
 const SPLASH_RADIUS = 30;
 const SPLASH_DAMAGE = 4;
+// salvage drones: lock a wreck instead of a ship and the missile flies out,
+// scoops up any wreck it passes within GRAB_RANGE of, and hops to the next one
+const SALVAGE_LOCK_TIME = 0.7;
+const SALVAGE_RANGE = 1500;
+const SALVAGE_CONE = Math.cos(THREE.MathUtils.degToRad(18));
+const DRONE_BURN = 8;
+const DRONE_LIFE = 11;
+const GRAB_RANGE = 22;                         // plus the wreck's radius
+const DRONE_HOP_RANGE = 1500;
 
 const _to = new THREE.Vector3();
 const _rel = new THREE.Vector3();
@@ -43,22 +52,25 @@ export class MissileSystem {
   constructor(ctx) {
     this.ctx = ctx;
     this.missiles = [];
+    this.capacity = MISSILES_PER_WAVE;   // raised by the Missile Racks upgrade
+    this.speedMult = 1;                  // raised by the Missile Boosters upgrade
     this.ammo = MISSILES_PER_WAVE;
     this.lockState = 'idle';  // idle | locking | locked
+    this.lockKind = 'enemy';  // enemy | salvage
     this.lockTarget = null;
     this.lockProgress = 0;
     this.beepTimer = 0;
   }
 
   refill() {
-    this.ammo = MISSILES_PER_WAVE;
+    this.ammo = this.capacity;
   }
 
   clear() {
     for (const m of this.missiles) this._dispose(m);
     this.missiles.length = 0;
     this.cancelLock(true);
-    this.ammo = MISSILES_PER_WAVE;
+    this.ammo = this.capacity;
   }
 
   cancelLock(silent = false) {
@@ -73,11 +85,16 @@ export class MissileSystem {
   pressLock() {
     const { hud, audio } = this.ctx;
     if (this.lockState !== 'idle') { this.cancelLock(); return; }
-    if (this.ammo <= 0) { hud.notice('NO MISSILES — RESUPPLY NEXT WAVE', 'red'); audio.beep(180, 0.15, 0.06, 'square'); return; }
-    const target = this._findCandidate(ACQUIRE_CONE, LOCK_RANGE);
+    if (this.ammo <= 0) { hud.notice('NO MISSILES — RESUPPLY NEXT WAVE OR REARM AT STATION', 'red'); audio.beep(180, 0.15, 0.06, 'square'); return; }
+    let target = this._findCandidate(ACQUIRE_CONE, LOCK_RANGE);
+    this.lockKind = 'enemy';
+    if (!target) {
+      target = this._findCandidate(SALVAGE_CONE, SALVAGE_RANGE, false, this.ctx.wrecks());
+      this.lockKind = 'salvage';
+    }
     if (!target) {
       const masked = this._findCandidate(ACQUIRE_CONE, LOCK_RANGE, true);
-      hud.notice(masked ? 'TARGET MASKED BY THE HOLE' : 'NO TARGET IN SEEKER CONE', 'dim');
+      hud.notice(masked ? 'TARGET MASKED BY THE HOLE' : 'NO TARGET OR SALVAGE IN SEEKER CONE', 'dim');
       audio.beep(240, 0.12, 0.05, 'square');
       return;
     }
@@ -91,24 +108,25 @@ export class MissileSystem {
   fire() {
     const { hud, audio, player } = this.ctx;
     if (!player.alive) return;
-    if (this.ammo <= 0) { hud.notice('NO MISSILES — RESUPPLY NEXT WAVE', 'red'); audio.beep(180, 0.15, 0.06, 'square'); return; }
+    if (this.ammo <= 0) { hud.notice('NO MISSILES — RESUPPLY NEXT WAVE OR REARM AT STATION', 'red'); audio.beep(180, 0.15, 0.06, 'square'); return; }
     if (this.lockState !== 'locked') {
       hud.notice(this.lockState === 'locking' ? 'LOCK NOT COMPLETE' : 'NO LOCK — PRESS E', 'dim');
       audio.beep(240, 0.12, 0.05, 'square');
       return;
     }
-    this._launch(this.lockTarget);
+    const salvage = this.lockKind === 'salvage';
+    this._launch(this.lockTarget, salvage);
     this.ammo--;
     this.cancelLock(true);
-    hud.notice('FOX THREE — MISSILE AWAY', 'orange');
+    hud.notice(salvage ? 'SALVAGE DRONE AWAY' : 'FOX THREE — MISSILE AWAY', salvage ? 'green' : 'orange');
   }
 
-  _findCandidate(cone, range, ignoreHole = false) {
+  _findCandidate(cone, range, ignoreHole = false, list = this.ctx.enemies()) {
     const { player } = this.ctx;
     const fwd = _fwd.set(0, 0, -1).applyQuaternion(player.quat);
     let best = null;
     let bestDot = cone;
-    for (const e of this.ctx.enemies()) {
+    for (const e of list) {
       if (!e.alive) continue;
       _to.subVectors(e.pos, player.pos);
       const d = _to.length();
@@ -119,7 +137,7 @@ export class MissileSystem {
     return best;
   }
 
-  _launch(target) {
+  _launch(target, salvage = false) {
     const { scene, player, audio, particles } = this.ctx;
     const built = buildMissile();
     scene.add(built.group);
@@ -131,7 +149,9 @@ export class MissileSystem {
       pos, vel, target, built,
       thrust: new THREE.Vector3(),
       quat: player.quat.clone(),
-      age: 0, alive: true, burning: true,
+      age: 0, alive: true, burning: true, salvage,
+      burnTime: salvage ? DRONE_BURN : BURN_TIME,
+      maxLife: salvage ? DRONE_LIFE : MAX_LIFE,
       trail: new Trail(scene, { segments: 70, width: 0.28, color: 0xffc890, interval: 0.025, fadeNear: 10 }),
     };
     m.trail.reset(pos);
@@ -156,13 +176,14 @@ export class MissileSystem {
         _to.subVectors(t.pos, player.pos);
         const d = _to.length();
         const fwd = _fwd.set(0, 0, -1).applyQuaternion(player.quat);
-        ok = d < LOCK_RANGE * 1.15 && _to.divideScalar(d).dot(fwd) > HOLD_CONE && !occludedByHole(player.pos, t.pos, 1.6);
+        const range = this.lockKind === 'salvage' ? SALVAGE_RANGE : LOCK_RANGE;
+        ok = d < range * 1.15 && _to.divideScalar(d).dot(fwd) > HOLD_CONE && !occludedByHole(player.pos, t.pos, 1.6);
       }
       if (!ok) {
         this.cancelLock(true);
         if (player.alive) { this.ctx.hud.notice('LOCK LOST', 'red'); audio.beep(300, 0.2, 0.06, 'sawtooth'); }
       } else if (this.lockState === 'locking') {
-        this.lockProgress = Math.min(1, this.lockProgress + dt / LOCK_TIME);
+        this.lockProgress = Math.min(1, this.lockProgress + dt / (this.lockKind === 'salvage' ? SALVAGE_LOCK_TIME : LOCK_TIME));
         this.beepTimer -= dt;
         if (this.beepTimer <= 0) {
           audio.beep(900 + this.lockProgress * 700, 0.04, 0.05, 'sine');
@@ -170,8 +191,13 @@ export class MissileSystem {
         }
         if (this.lockProgress >= 1) {
           this.lockState = 'locked';
-          audio.setLockTone(true);
-          this.ctx.hud.notice('LOCKED — PRESS Q TO FIRE', 'red');
+          if (this.lockKind === 'salvage') {
+            audio.beep(1320, 0.12, 0.06, 'sine');
+            this.ctx.hud.notice('SALVAGE LOCKED — PRESS Q TO LAUNCH DRONE', 'green');
+          } else {
+            audio.setLockTone(true);
+            this.ctx.hud.notice('LOCKED — PRESS Q TO FIRE', 'red');
+          }
         }
       }
     }
@@ -180,19 +206,22 @@ export class MissileSystem {
     for (const m of this.missiles) {
       if (!m.alive) continue;
       m.age += dt;
-      m.burning = m.age < BURN_TIME;
+      m.burning = m.age < m.burnTime;
       m.thrust.set(0, 0, 0);
+      if (m.salvage && m.burning && (!m.target || !m.target.alive)) this._nextWreck(m);
       const t = m.target;
       if (m.burning && t && t.alive) {
         _to.subVectors(t.pos, m.pos);
         const d = _to.length();
         _rel.subVectors(m.vel, t.vel);
         // closing speed ramps up as the motor spools
-        const speed = Math.min(80 + m.age * 160, 420);
+        let speed = Math.min(80 + m.age * 160 * this.speedMult, 420 * this.speedMult);
+        // drones only need to pass close by, so they brake on approach and stay agile between wrecks
+        if (m.salvage) speed = Math.min(speed, 30 + Math.sqrt(2 * 0.6 * MOTOR_ACCEL * this.speedMult * d));
         _des.copy(_to).divideScalar(Math.max(d, 1e-3)).multiplyScalar(speed);
         _des.sub(_rel).multiplyScalar(4);
         _des.add(accelAt(t.pos, _gT).sub(accelAt(m.pos, _gM)));
-        m.thrust.copy(_des).clampLength(0, MOTOR_ACCEL);
+        m.thrust.copy(_des).clampLength(0, MOTOR_ACCEL * this.speedMult);
       } else if (m.burning) {
         // target gone: burn straight ahead
         m.thrust.set(0, 0, -1).applyQuaternion(m.quat).multiplyScalar(MOTOR_ACCEL * 0.5);
@@ -214,7 +243,7 @@ export class MissileSystem {
       f.mat.uniforms.uIntensity.value = 1.6;
       _back.set(0, 0, 1).applyQuaternion(m.quat);
       const tail = _dir.copy(m.pos).addScaledVector(_back, 1.0);
-      m.trail.update(dt, tail, camPos, m.burning ? 0.9 : Math.max(0, 0.9 - (m.age - BURN_TIME) * 0.6));
+      m.trail.update(dt, tail, camPos, m.burning ? 0.9 : Math.max(0, 0.9 - (m.age - m.burnTime) * 0.6));
       if (thr) {
         const p = this.ctx.particles;
         p.emit(tail.x, tail.y, tail.z,
@@ -223,7 +252,10 @@ export class MissileSystem {
           m.vel.z + _back.z * 25 + (Math.random() - 0.5) * 4,
           0.9, 0.55, 0.25, 0.5, 2.2, 0.45, false);
       }
-      if (m.age > MAX_LIFE) this._detonate(m, null, true);
+      if (m.age > m.maxLife) {
+        if (m.salvage) this._expireDrone(m);
+        else this._detonate(m, null, true);
+      }
     }
     this.missiles = this.missiles.filter((m) => m.alive);
   }
@@ -237,7 +269,37 @@ export class MissileSystem {
         if (!e.alive) continue;
         if (m.pos.distanceTo(e.pos) < FUSE + e.radius) { this._detonate(m, e, false); break; }
       }
+      if (!m.alive) continue;
+      // any missile that flies through a wreck scoops up its scrap
+      for (const w of this.ctx.wrecks()) {
+        if (!w.alive || m.pos.distanceTo(w.pos) > GRAB_RANGE + w.radius) continue;
+        this.ctx.collectWreck(w, m);
+        if (m.salvage && (m.target === w || !m.target || !m.target.alive)) this._nextWreck(m);
+      }
     }
+  }
+
+  /** Salvage drone: hop to the nearest remaining wreck in reach, refuelling the motor. */
+  _nextWreck(m) {
+    let best = null, bd = DRONE_HOP_RANGE;
+    for (const w of this.ctx.wrecks()) {
+      if (!w.alive) continue;
+      const d = w.pos.distanceTo(m.pos);
+      if (d < bd && !occludedByHole(m.pos, w.pos, 1.6)) { bd = d; best = w; }
+    }
+    m.target = best;
+    if (best) {
+      m.age = Math.min(m.age, 1);   // keep the motor lit for the next leg
+    }
+  }
+
+  _expireDrone(m) {
+    const p = this.ctx.particles;
+    for (let i = 0; i < 20; i++) {
+      p.emit(m.pos.x, m.pos.y, m.pos.z, m.vel.x + (Math.random() - 0.5) * 12, m.vel.y + (Math.random() - 0.5) * 12, m.vel.z + (Math.random() - 0.5) * 12,
+        0.4, 1.4, 0.7, 0.6, 1.6, 0.6, false);
+    }
+    this._dispose(m);
   }
 
   _detonate(m, direct, fizzle) {
@@ -265,6 +327,6 @@ export class MissileSystem {
   }
 
   get lockInfo() {
-    return { state: this.lockState, target: this.lockTarget, progress: this.lockProgress };
+    return { state: this.lockState, target: this.lockTarget, progress: this.lockProgress, kind: this.lockKind };
   }
 }

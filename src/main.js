@@ -17,6 +17,10 @@ import { Enemy } from './enemies.js';
 import { GameAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
+import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
+import { DockAssist } from './autopilot.js';
+import { WreckSystem, COLLECT_RANGE } from './wrecks.js';
+import { StationUI, UPGRADES, newUpgradeLevels, REPAIR_HP_PER_SCRAP, REARM_COST } from './stationui.js';
 
 // ===========================================================================
 // Tunables
@@ -35,6 +39,10 @@ const ROLL_RATE = 2.0;
 const START_RADIUS = 1100;
 const DANGER_CLOSE = 750;            // kills inside this radius score double
 const TIDAL_RADIUS = 3.4 * RS;       // tidal stress starts here
+const INTERMISSION = 120;            // seconds between waves
+const STATION_RADIUS = 2500;           // high, slow orbit (≈2 min period)
+const BASE_HULL = 100;
+const SHIELD_MAX = 100;
 
 const QUALITY = {
   HIGH: { ratio: 1.5, label: 'HIGH' },
@@ -200,8 +208,9 @@ const player = {
   thrustAcc: new THREE.Vector3(),
   alive: false,
   radius: 1.6,              // hitbox: covers the fuselage; wingtips are forgiving
-  hull: 100, shield: 100, heat: 0, overheated: false,
+  hull: 100, maxHull: BASE_HULL, shield: 100, heat: 0, overheated: false,
   shieldDelay: 0, fireCd: 0, gun: 0,
+  docking: false, docked: false, needsClearance: false,
   pendingYaw: 0, pendingPitch: 0, yawRate: 0, pitchRate: 0,
   throttle: 0,
 };
@@ -224,8 +233,12 @@ window.addEventListener('keydown', (e) => {
   if (['Space', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (state === 'playing' && player.alive && !e.repeat) {
-    if (e.code === 'KeyE') missiles.pressLock();
-    if (e.code === 'KeyQ') missiles.fire();
+    const inDock = player.docked || player.docking;
+    if (e.code === 'KeyE' && !inDock) missiles.pressLock();
+    if (e.code === 'KeyQ' && !inDock) missiles.fire();
+    if (e.code === 'KeyF' && player.docked) undock();
+    if (e.code === 'KeyN') callNextWave();
+    if (e.code === 'KeyB') toggleDockAssist();
   }
   if ((e.code === 'KeyP' || (e.code === 'Escape' && document.pointerLockElement !== canvas)) && state === 'playing') pauseGame();
 });
@@ -233,13 +246,13 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => { keys.clear(); firing = false; });
 
 document.addEventListener('mousemove', (e) => {
-  if (state !== 'playing' || !player.alive) return;
+  if (state !== 'playing' || !player.alive || player.docked || player.docking) return;
   const s = 0.0021 * sensitivity;
   player.pendingYaw -= e.movementX * s;
   player.pendingPitch -= e.movementY * s * (invertY ? -1 : 1);
 });
 canvas.addEventListener('mousedown', (e) => {
-  if (state !== 'playing') return;
+  if (state !== 'playing' || player.docked) return;
   if (document.pointerLockElement !== canvas) requestLock();
   if (e.button === 0) firing = true;
 });
@@ -261,7 +274,7 @@ function requestLock() {
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   if (locked) hadLock = true;
-  if (!locked && state === 'playing' && hadLock) pauseGame();
+  if (!locked && state === 'playing' && hadLock && !player.docked) pauseGame();
 });
 
 // ===========================================================================
@@ -273,6 +286,7 @@ const game = {
   enemies: [], spawnQueue: [], spawnTimer: 0, waveTimer: -1, waveActive: false,
   time: 0, timeScale: 1, deathTimer: 0, deathCause: '', trauma: 0, damageFlash: 0,
   warnBeep: 0, proximityBeep: 0, plasmaFx: 0,
+  scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   enemyFire,
 };
 let best = store.get('eh_best', 0);
@@ -475,6 +489,7 @@ function killEnemy(e, cause) {
   const dist = e.pos.distanceTo(player.pos);
   if (cause === 'void') { e.destroy(); return; }
   if (cause !== 'horizon') explode(e.pos, e.vel, scale, tint);
+  if (cause === 'player' || cause === 'ram' || cause === 'missile') wrecks.spawn(e);
   audio.explosion(scale, THREE.MathUtils.clamp(1.4 - dist / 700, 0.15, 1));
   if (dist < 60) game.trauma = Math.min(1, game.trauma + 0.35);
 
@@ -520,12 +535,168 @@ function hitEnemy(e, dmg, point, cause = 'player') {
 const missiles = new MissileSystem({
   scene, particles, audio, hud, player, camera,
   enemies: () => game.enemies,
+  wrecks: () => wrecks.list,
+  collectWreck: (w, m) => wrecks.collect(w, m.pos, m.vel, 'missile'),
   explode, hitEnemy, damagePlayer,
 });
 
+// ===========================================================================
+// Station, salvage & upgrades
+// ===========================================================================
+const station = new Station(scene);
+const wrecks = new WreckSystem(scene, particles);
+const dockAssist = new DockAssist(station, MAIN_THRUST);
+
+wrecks.onCollect = (w, by) => {
+  game.scrap += w.value;
+  game.scrapTotal += w.value;
+  audio.pickup();
+  hud.project(w.pos, camera, scr);
+  const sub = by === 'missile' ? 'DRONE SALVAGE' : 'SALVAGED';
+  if (scr.onScreen) hud.popup(scr.x, scr.y, `+${w.value} SCRAP`, sub);
+  else hud.popup(innerWidth / 2, innerHeight * 0.4, `+${w.value} SCRAP`, sub);
+};
+
+function toggleDockAssist() {
+  if (player.docked || player.docking || !player.alive) return;
+  if (dockAssist.active) {
+    dockAssist.disengage();
+    hud.notice('DOCKING ASSIST OFF', 'dim');
+  } else {
+    dockAssist.engage();
+    audio.beep(880, 0.08, 0.05, 'sine');
+    setTimeout(() => audio.beep(1320, 0.1, 0.05, 'sine'), 80);
+    hud.notice('DOCKING ASSIST ENGAGED · ANY THRUST KEY TO CANCEL', 'green');
+  }
+}
+
+function cannonDamage() { return BOLT_DAMAGE * (1 + 0.25 * game.levels.damage); }
+function shieldRegenRate() { return 22 * (1 + 0.4 * game.levels.shieldRegen); }
+function shieldRechargeDelay() { return 2.6 * (1 - 0.12 * game.levels.shieldRegen); }
+
+function applyUpgrades() {
+  player.maxHull = BASE_HULL + 25 * game.levels.hull;
+  missiles.capacity = 2 + game.levels.missileCap;
+  missiles.speedMult = 1 + 0.3 * game.levels.missileSpeed;
+}
+
+const stationUI = new StationUI({
+  buy(id) {
+    const u = UPGRADES.find((x) => x.id === id);
+    const lvl = game.levels[id];
+    const cost = u.costs[lvl];
+    if (cost === undefined || game.scrap < cost) return;
+    game.scrap -= cost;
+    game.levels[id]++;
+    applyUpgrades();
+    if (id === 'hull') player.hull += 25;
+    if (id === 'missileCap') missiles.ammo++;
+    audio.purchase();
+    hud.notice(`${u.name} · LEVEL ${lvl + 1}`, 'green');
+  },
+  repair() {
+    const missing = player.maxHull - player.hull;
+    if (missing < 1 || game.scrap < 1) return;
+    const cost = Math.ceil(missing / REPAIR_HP_PER_SCRAP);
+    if (game.scrap >= cost) { game.scrap -= cost; player.hull = player.maxHull; }
+    else { player.hull += game.scrap * REPAIR_HP_PER_SCRAP; game.scrap = 0; }
+    audio.purchase();
+  },
+  rearm() {
+    const need = missiles.capacity - missiles.ammo;
+    if (need <= 0 || game.scrap < need * REARM_COST) return;
+    game.scrap -= need * REARM_COST;
+    missiles.ammo = missiles.capacity;
+    audio.purchase();
+  },
+  undock: () => undock(),
+  callWave: () => callNextWave(),
+}, () => ({
+  scrap: game.scrap, levels: game.levels, hull: player.hull, maxHull: player.maxHull,
+  ammo: missiles.ammo, capacity: missiles.capacity,
+  waveTimer: game.waveTimer, waveActive: game.waveActive,
+  hostiles: game.enemies.length + game.spawnQueue.length, underAttack: game.underAttack > 0,
+}), audio);
+
+function callNextWave() {
+  if (state !== 'playing' || game.waveActive || game.waveTimer <= 6) return;
+  game.waveTimer = 6;
+  hud.notice('NEXT WAVE CALLED IN', 'orange');
+}
+
+function tryDock() {
+  if (player.docked || player.docking || !player.alive || state !== 'playing') return;
+  if (player.needsClearance) {
+    if (player.pos.distanceTo(station.pos) > DOCK_RANGE * 1.8) player.needsClearance = false;
+    return;
+  }
+  if (!station.canDock(player)) return;
+  dockAssist.disengage();
+  player.docking = true;
+  station.beginDock(player);
+  firing = false;
+  missiles.cancelLock(true);
+  audio.silenceEngine();
+  audio.dockClamp();
+  hud.notice('DOCKING CLAMPS ENGAGED', 'green');
+}
+
+function finishDock() {
+  player.docking = false;
+  player.docked = true;
+  keys.clear();
+  dockCam.init = false;
+  document.body.style.cursor = '';
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  stationUI.show();
+  hud.banner('DOCKED', 'KEPLER STATION · SPEND YOUR SCRAP', 2200);
+}
+
+function undock() {
+  if (!player.docked) return;
+  player.docked = false;
+  player.needsClearance = true;
+  station.releasePlayer(player);
+  camQuat.copy(player.quat);
+  stationUI.hide();
+  document.body.style.cursor = 'none';
+  requestLock();
+  audio.dockClamp();
+  hud.notice('UNDOCKED · GOOD HUNTING', 'green');
+}
+
+function forceUndockUI() {
+  player.docked = false;
+  player.docking = false;
+  stationUI.hide();
+}
+
+// docked camera: a slow orbit around the station, smoothed in the station's frame
+const dockCam = { init: false, angle: 0.6, local: new THREE.Vector3(), target: new THREE.Vector3(), look: new THREE.Vector3(0, 0, -30) };
+function updateDockCamera(dt) {
+  dockCam.angle += dt * 0.08;
+  dockCam.target.set(Math.cos(dockCam.angle) * 165, 55, -40 + Math.sin(dockCam.angle) * 165);
+  if (!dockCam.init) { station.toLocal(camera.position, dockCam.local); dockCam.init = true; }
+  dockCam.local.lerp(dockCam.target, 1 - Math.exp(-dt * 1.2));
+  station.toWorld(dockCam.local, camera.position);
+  camera.up.set(0, 1, 0).applyQuaternion(station.quat);
+  camera.lookAt(station.toWorld(dockCam.look, _v3));
+  const shake = game.trauma * game.trauma;
+  if (shake > 0.001) {
+    const t = performance.now() * 0.001;
+    _e1.set(Math.sin(t * 47) * 0.01 * shake, Math.sin(t * 53) * 0.01 * shake, 0);
+    _q1.setFromEuler(_e1);
+    camera.quaternion.multiply(_q1);
+  }
+  game.trauma = Math.max(0, game.trauma - dt * 1.4);
+  if (Math.abs(camera.fov - 60) > 0.01) { camera.fov = THREE.MathUtils.lerp(camera.fov, 60, 1 - Math.exp(-dt * 3)); camera.updateProjectionMatrix(); }
+  camera.updateMatrixWorld();
+}
+
 function damagePlayer(amount, opts = {}) {
   if (!player.alive) return;
-  player.shieldDelay = 2.6;
+  player.shieldDelay = shieldRechargeDelay();
+  game.underAttack = 3;
   let rem = amount;
   const hadShield = player.shield > 0;
   if (player.shield > 0) {
@@ -550,6 +721,8 @@ function killPlayer(cause) {
   game.deathCause = cause;
   game.deathTimer = 0;
   missiles.cancelLock(true);
+  dockAssist.disengage();
+  if (player.docked || player.docking) forceUndockUI();
   state = 'dead';
   firing = false;
   audio.silenceEngine();
@@ -575,7 +748,7 @@ function firePlayer(lockInfo) {
     dir = _v2.copy(player.pos).addScaledVector(fwd, CONVERGE_DIST).sub(muzzle).normalize();
   }
   _v3.copy(player.vel).addScaledVector(dir, BOLT_SPEED);
-  playerBolts.spawn(muzzle, _v3, BOLT_LIFE, BOLT_DAMAGE);
+  playerBolts.spawn(muzzle, _v3, BOLT_LIFE, cannonDamage());
   particles.emit(muzzle.x, muzzle.y, muzzle.z, player.vel.x + dir.x * 20, player.vel.y + dir.y * 20, player.vel.z + dir.z * 20, 0.6, 2.2, 3, 1.4, 0.3, 0.07, false);
   player.heat += HEAT_PER_SHOT;
   if (player.heat >= 1) { player.heat = 1; player.overheated = true; audio.beep(220, 0.25, 0.08, 'sawtooth'); }
@@ -592,6 +765,7 @@ function clearWorld() {
   playerBolts.clear();
   enemyBolts.clear();
   missiles.clear();
+  wrecks.clear();
   particles.clear();
   for (const d of debris) d.visible = false;
   for (const s of shockwaves) s.visible = false;
@@ -600,11 +774,16 @@ function clearWorld() {
 function startGame() {
   clearWorld();
   Object.assign(game, {
-    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: 2.5, waveActive: false,
+    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: 4, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
+    scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   });
+  forceUndockUI();
+  dockAssist.disengage();
+  applyUpgrades();
+  missiles.ammo = missiles.capacity;
   Object.assign(player, {
-    alive: true, hull: 100, shield: 100, heat: 0, overheated: false, shieldDelay: 0, fireCd: 0, gun: 0,
+    alive: true, hull: BASE_HULL, shield: SHIELD_MAX, needsClearance: false, heat: 0, overheated: false, shieldDelay: 0, fireCd: 0, gun: 0,
     pendingYaw: 0, pendingPitch: 0, yawRate: 0, pitchRate: 0, throttle: 0,
   });
   const normal = new THREE.Vector3(0.12, 1, 0.08).normalize();
@@ -617,6 +796,7 @@ function startGame() {
   const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), look, normal);
   player.quat.setFromRotationMatrix(m);
   camQuat.copy(player.quat);
+  station.reset(STATION_RADIUS, normal, Math.PI * 0.25 + 0.42);   // slow, thruster-held orbit
   shipParts.group.visible = true;
   shipParts.model.scale.set(1, 1, 1);
   for (const t of playerTrails) { t.mesh.visible = true; t.reset(player.pos); }
@@ -644,6 +824,7 @@ function resumeGame() {
   if (state !== 'paused') return;
   state = 'playing';
   setOverlay(null);
+  if (player.docked) return;
   document.body.style.cursor = 'none';
   if (missiles.lockState === 'locked') audio.setLockTone(true);
   requestLock();
@@ -651,6 +832,8 @@ function resumeGame() {
 
 function toMenu() {
   clearWorld();
+  forceUndockUI();
+  station.setVisible(false);
   state = 'menu';
   player.alive = false;
   shipParts.group.visible = false;
@@ -684,6 +867,9 @@ function showGameOver() {
   shipParts.group.visible = false;
   for (const t of playerTrails) t.mesh.visible = false;
   orbitLine.visible = false;
+  wrecks.clear();
+  forceUndockUI();
+  station.setVisible(false);
   setOverlay('gameover');
   document.body.style.cursor = '';
   if (document.pointerLockElement === canvas) document.exitPointerLock();
@@ -698,7 +884,25 @@ function updateBest() {
 // ===========================================================================
 let lockInfo = { enemy: null, aim: new THREE.Vector3(), assist: false };
 
+const _apQ = new THREE.Quaternion();
+const _apM = new THREE.Matrix4();
+const _origin = new THREE.Vector3();
+
 function updatePlayerControl(dt) {
+  // --- docking assist: any manual thrust input hands control back ---
+  if (dockAssist.active && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight'].some((k) => keys.has(k))) {
+    dockAssist.disengage();
+    hud.notice('DOCKING ASSIST OFF · MANUAL OVERRIDE', 'dim');
+  }
+  const ap = dockAssist.active ? dockAssist.update(dt, player) : null;
+  if (ap) { player.pendingYaw = 0; player.pendingPitch = 0; }
+  if (ap && ap.has) {
+    _up.set(0, 1, 0).applyQuaternion(player.quat);
+    _apM.lookAt(_origin, ap.dir, _up);
+    _apQ.setFromRotationMatrix(_apM);
+    player.quat.rotateTowards(_apQ, 2.5 * dt);
+  }
+
   // --- rotation from mouse (smoothed) + roll ---
   const k = 1 - Math.exp(-dt * 24);
   const yaw = player.pendingYaw * k;
@@ -718,9 +922,17 @@ function updatePlayerControl(dt) {
   const lx = (D ? 1 : 0) - (A ? 1 : 0);
   const ly = (U ? 1 : 0) - (Dn ? 1 : 0);
   const lz = (W ? -MAIN_THRUST : 0) + (S ? RETRO_THRUST : 0);
-  player.thrustAcc.set(lx * SIDE_THRUST, ly * SIDE_THRUST, lz).applyQuaternion(player.quat);
-  player.throttle = THREE.MathUtils.lerp(player.throttle, W ? 1 : 0, 1 - Math.exp(-dt * 10));
-  hud.setThrusters(W, A, D, U, Dn);
+  let apThrottle = 0;
+  if (ap && ap.has) {
+    // autopilot drives the main engine, throttled by how well the nose is aligned
+    const align = THREE.MathUtils.clamp((forwardOf(player.quat, _v1).dot(ap.dir) - 0.85) / 0.15, 0, 1);
+    apThrottle = (ap.mag / MAIN_THRUST) * align;
+    player.thrustAcc.copy(_v1).multiplyScalar(ap.mag * align);
+  } else {
+    player.thrustAcc.set(lx * SIDE_THRUST, ly * SIDE_THRUST, lz).applyQuaternion(player.quat);
+  }
+  player.throttle = THREE.MathUtils.lerp(player.throttle, W ? 1 : apThrottle, 1 - Math.exp(-dt * 10));
+  hud.setThrusters(W || apThrottle > 0.05, A, D, U, Dn);
   audio.setEngine(player.throttle, (lx || ly || S) ? 1 : 0);
 
   // RCS puffs
@@ -739,7 +951,7 @@ function updatePlayerControl(dt) {
     }
   }
   // exhaust
-  if (W) {
+  if (W || apThrottle > 0.3) {
     for (const e of shipParts.engines) {
       const p = _v1.copy(e).applyQuaternion(player.quat).add(player.pos);
       const v = _v2.copy(player.vel).addScaledVector(fwd, -rand(25, 45));
@@ -784,9 +996,15 @@ function updatePlayerControl(dt) {
     firePlayer(lockInfo);
   }
 
-  // --- shields ---
+}
+
+function updateShields(dt) {
   player.shieldDelay -= dt;
-  if (player.shieldDelay <= 0) player.shield = Math.min(100, player.shield + 22 * dt);
+  if (player.shieldDelay <= 0) player.shield = Math.min(SHIELD_MAX, player.shield + shieldRegenRate() * dt);
+  if (player.docked || player.docking) {
+    player.heat = Math.max(0, player.heat - dt * 0.5);
+    if (player.heat < 0.3) player.overheated = false;
+  }
 }
 
 function updatePlayerVisual(dt, time) {
@@ -827,7 +1045,11 @@ function updatePlayerVisual(dt, time) {
 const playerTarget = { pos: player.pos, radius: player.radius, alive: true };
 
 function physicsStep(h) {
-  if (player.alive) {
+  station.physics(h);
+  wrecks.physics(h);
+  if (player.alive && (player.docked || player.docking)) {
+    // slaved to the docking port (see Station.holdPlayer)
+  } else if (player.alive) {
     integrate(player.pos, player.vel, player.thrustAcc, h);
   } else if (player.pos.length() > RS) {
     integrate(player.pos, player.vel, null, h);
@@ -965,6 +1187,7 @@ function updateNavMarkers() {
   const fwd = forwardOf(player.quat, _fwd);
   const aimPt = _v1.copy(player.pos).addScaledVector(fwd, CONVERGE_DIST);
   hud.project(aimPt, camera, scr);
+  el.crosshair.style.display = 'block';
   el.crosshair.style.left = `${scr.x}px`;
   el.crosshair.style.top = `${scr.y}px`;
 
@@ -1010,6 +1233,10 @@ function updateNavMarkers() {
     showAt(el.apLabel, scr);
     el.apLabel.textContent = `Ap ${(pred.maxR - RS).toFixed(0)}`;
   } else el.apLabel.style.display = 'none';
+}
+
+function hideNavMarkers() {
+  for (const k of ['crosshair', 'prograde', 'retrograde', 'lead', 'peLabel', 'apLabel']) hud.el[k].style.display = 'none';
 }
 
 function showAt(el, s) {
@@ -1080,7 +1307,17 @@ function tick(rawDt, render) {
     const dt = rawDt * game.timeScale;
     game.time += dt;
 
-    if (state === 'playing') updatePlayerControl(dt);
+    const inDock = player.docked || player.docking;
+    if (state === 'playing') {
+      if (!inDock) updatePlayerControl(dt);
+      else {
+        player.thrustAcc.set(0, 0, 0);
+        player.throttle = 0;
+        firing = false;
+        hud.setThrusters(false, false, false, false, false);
+      }
+      if (player.alive) updateShields(dt);
+    }
     for (const e of game.enemies) if (e.alive) e.think(dt, player, game);
 
     accumulator += dt;
@@ -1093,10 +1330,30 @@ function tick(rawDt, render) {
     if (steps >= 10) accumulator = 0;
     game.enemies = game.enemies.filter((e) => e.alive);
 
+    // station, docking, salvage
+    station.update(dt, visualTime);
+    if (player.alive && (player.docked || player.docking)) {
+      const done = station.holdPlayer(player, dt);
+      if (player.docking && done) finishDock();
+    }
+    tryDock();
+    game.underAttack = Math.max(0, game.underAttack - dt);
+    wrecks.update(dt, visualTime, player, player.alive && !player.docked && !player.docking);
+
     // waves
     if (state === 'playing') {
       if (game.waveTimer > 0) {
+        const prev = game.waveTimer;
         game.waveTimer -= dt;
+        if (game.wave > 0) {
+          for (const th of [60, 30, 10]) {
+            if (prev > th && game.waveTimer <= th) {
+              hud.banner(`WAVE ${game.wave + 1} INBOUND`, `${th} SECONDS${player.docked ? ' · UNDOCK WITH [F]' : ''}`, 2200);
+              audio.alarm();
+            }
+          }
+          if (game.waveTimer <= 5 && Math.ceil(prev) !== Math.ceil(game.waveTimer) && game.waveTimer > 0) audio.beep(1200, 0.08, 0.06, 'square');
+        }
         if (game.waveTimer <= 0) startWave(game.wave + 1);
       }
       if (game.spawnQueue.length) {
@@ -1107,10 +1364,10 @@ function tick(rawDt, render) {
         }
       } else if (game.waveActive && game.enemies.length === 0) {
         game.waveActive = false;
-        game.waveTimer = 4.5;
-        player.hull = Math.min(100, player.hull + 25);
-        player.shield = 100;
-        hud.banner('WAVE CLEARED', `+${game.wave * 250} BONUS · HULL REPAIRED`, 3000);
+        game.waveTimer = INTERMISSION;
+        player.hull = Math.min(player.maxHull, player.hull + 15);
+        player.shield = SHIELD_MAX;
+        hud.banner('WAVE CLEARED', `+${game.wave * 250} BONUS · 2:00 TO SALVAGE AND UPGRADE`, 3500);
         game.score += game.wave * 250;
         audio.waveClear();
       }
@@ -1125,16 +1382,17 @@ function tick(rawDt, render) {
     missiles.update(dt, camera.position, visualTime);
     particles.update(dt);
     updateEffects(dt);
-    updateChaseCamera(rawDt);
+    if (player.docked && player.alive) updateDockCamera(rawDt);
+    else updateChaseCamera(rawDt);
     playerBolts.updateVisuals(player.vel);
     enemyBolts.updateVisuals(player.vel);
 
     // HUD
     const warnings = [];
     if (state === 'playing') {
-      updateHazards(dt, warnings);
+      if (!inDock) updateHazards(dt, warnings);
       updateTelemetry(dt);
-      if (pred.impact) {
+      if (pred.impact && !inDock) {
         warnings.unshift({ text: '⚠ IMPACT TRAJECTORY — BURN PROGRADE', color: 'red' });
         game.warnBeep -= dt;
         if (game.warnBeep <= 0) { audio.beep(960, 0.09, 0.07); game.warnBeep = 0.45; }
@@ -1149,12 +1407,25 @@ function tick(rawDt, render) {
         if (game.proximityBeep <= 0) { audio.beep(1500, 0.05, 0.05, 'sine'); game.proximityBeep = 0.25; }
       }
       hud.setWarnings(warnings);
-      hud.setBars(player.shield / 100, player.hull / 100, player.heat, player.overheated);
+      hud.setBars(player.shield / SHIELD_MAX, player.hull / player.maxHull, player.heat, player.overheated);
+      hud.setScrap(game.scrap);
+      hud.setWaveTimer(game.waveActive ? 0 : game.waveTimer, player.docked);
+      hud.updateStation(station, player, camera, {
+        show: !player.docked && !player.docking, canDock: station.canDock(player),
+        dockRange: DOCK_RANGE, dockSpeed: DOCK_MAX_REL_SPEED, needsClearance: player.needsClearance, assist: dockAssist.active,
+      });
+      hud.updateWrecks(wrecks.list, camera, player.pos, COLLECT_RANGE);
+      hud.setAutopilot(dockAssist.active ? {
+        mode: dockAssist.mode, dist: station.pos.distanceTo(player.pos), rel: station.relativeSpeed(player),
+        eta: dockAssist.eta, burning: player.throttle > 0.1,
+      } : null);
+      if (player.docked) stationUI.render();
       hud.setScore(game.score, game.wave, game.mult, game.enemies.length + game.spawnQueue.length);
-      updateNavMarkers();
-      hud.setMissiles(missiles.ammo, missiles.lockInfo, camera);
+      if (inDock) hideNavMarkers();
+      else updateNavMarkers();
+      hud.setMissiles(missiles.ammo, missiles.capacity, missiles.lockInfo, camera);
       hud.updateMarkers(game.enemies, camera, player.pos, lockInfo.enemy);
-      hud.drawRadar(player, game.enemies, pred, visualTime);
+      hud.drawRadar(player, game.enemies, pred, visualTime, station, wrecks.list);
     }
 
     // post fx
@@ -1275,5 +1546,5 @@ frame();
 window.__eh = {
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
-  spawnEnemy, explode, killEnemy, missiles,
+  spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
   game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };
