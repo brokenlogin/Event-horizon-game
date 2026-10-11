@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Event Horizon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- ===================== HUD ===================== -->
+  <div id="hud" class="hidden">
+    <div id="markers"></div>
+    <div id="nav-labels">
+      <div id="pe-label" class="orbit-label">Pe</div>
+      <div id="ap-label" class="orbit-label">Ap</div>
+    </div>
+    <div id="prograde" class="nav-marker" title="Prograde">
+      <svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="8" /><line x1="20" y1="4" x2="20" y2="12"/><line x1="4" y1="20" x2="12" y2="20"/><line x1="28" y1="20" x2="36" y2="20"/><circle cx="20" cy="20" r="1.6" class="fill"/></svg>
+    </div>
+    <div id="retrograde" class="nav-marker" title="Retrograde">
+      <svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="8" /><line x1="14" y1="14" x2="26" y2="26"/><line x1="26" y1="14" x2="14" y2="26"/><line x1="20" y1="28" x2="20" y2="36"/><line x1="4" y1="20" x2="12" y2="20"/><line x1="28" y1="20" x2="36" y2="20"/></svg>
+    </div>
+    <div id="leadpip"></div>
+    <div id="lockring"><div class="lr-box"></div><div class="lr-label">LOCKING</div></div>
+    <div id="notice"></div>
+    <div id="crosshair">
+      <svg viewBox="0 0 80 80">
+        <circle cx="40" cy="40" r="15" class="ring"/>
+        <line x1="40" y1="13" x2="40" y2="21"/><line x1="40" y1="59" x2="40" y2="67"/>
+        <line x1="13" y1="40" x2="21" y2="40"/><line x1="59" y1="40" x2="67" y2="40"/>
+        <circle cx="40" cy="40" r="1.8" class="fill"/>
+      </svg>
+      <div id="hitmarker"></div>
+    </div>
+
+    <div id="top-left" class="panel">
+      <div class="label">SCORE</div>
+      <div id="score">0</div>
+      <div class="sub-row"><span class="label">WAVE</span><span id="wave">1</span><span id="mult" class="mult"></span></div>
+      <div class="sub-row"><span class="label">HOSTILES</span><span id="hostiles">0</span></div>
+    </div>
+
+    <div id="telemetry" class="panel">
+      <div class="tel-title">ORBIT</div>
+      <div class="tel-row"><span>ALT</span><b id="t-alt">0</b></div>
+      <div class="tel-row"><span>VEL</span><b id="t-vel">0</b></div>
+      <div class="tel-row"><span>V-CIRC</span><b id="t-vc">0</b></div>
+      <div class="tel-row"><span>PERIAPSIS</span><b id="t-pe">-</b></div>
+      <div class="tel-row"><span>APOAPSIS</span><b id="t-ap">-</b></div>
+      <div class="tel-row"><span>PERIOD</span><b id="t-per">-</b></div>
+      <div id="t-state" class="tel-state">STABLE</div>
+    </div>
+
+    <div id="status" class="panel">
+      <div class="bar-row"><span class="label">SHIELD</span><div class="bar"><div id="b-shield" class="fill shield"></div></div></div>
+      <div class="bar-row"><span class="label">HULL</span><div class="bar"><div id="b-hull" class="fill hull"></div></div></div>
+      <div class="bar-row"><span class="label">CANNON</span><div class="bar"><div id="b-heat" class="fill heat"></div></div></div>
+      <div class="bar-row"><span class="label">MISSILE</span><div class="missile-pips"><i id="mp-0"></i><i id="mp-1"></i></div><span id="lock-status" class="lock-status"></span></div>
+      <div class="bar-row thrust-row"><span class="label">THRUST</span><div class="thrust-grid"><i id="th-f"></i><i id="th-l"></i><i id="th-r"></i><i id="th-u"></i><i id="th-d"></i></div></div>
+    </div>
+
+    <div id="radar-wrap" class="panel"><canvas id="radar" width="240" height="240"></canvas><div class="radar-cap">ORBITAL PLOT · TOP-DOWN</div></div>
+
+    <div id="warnings"></div>
+    <div id="banner"><div id="banner-title"></div><div id="banner-sub"></div></div>
+    <div id="popups"></div>
+  </div>
+
+  <div id="fade"></div>
+
+  <!-- ===================== MENU ===================== -->
+  <div id="menu" class="overlay">
+    <div class="menu-inner">
+      <div class="title-kicker">ORBITAL COMBAT AT THE EDGE OF A SINGULARITY</div>
+      <h1 class="title">EVENT<span>HORIZON</span></h1>
+      <div class="menu-buttons">
+        <button id="btn-play" class="btn primary">LAUNCH</button>
+        <button id="btn-controls" class="btn">FLIGHT MANUAL</button>
+        <button id="btn-quality" class="btn small">GRAPHICS: HIGH</button>
+      </div>
+      <div id="best" class="best"></div>
+    </div>
+    <div class="menu-footer">Gravity is a weapon. Lower orbits are faster. Don't fall in.</div>
+  </div>
+
+  <div id="controls" class="overlay hidden">
+    <div class="card">
+      <h2>FLIGHT MANUAL</h2>
+      <div class="controls-grid">
+        <div><kbd>MOUSE</kbd></div><div>Steer the ship (pitch / yaw)</div>
+        <div><kbd>W</kbd></div><div>Main thruster</div>
+        <div><kbd>S</kbd></div><div>Retro thruster</div>
+        <div><kbd>A</kbd> <kbd>D</kbd></div><div>Strafe left / right</div>
+        <div><kbd>SPACE</kbd> <kbd>SHIFT</kbd></div><div>Thrust up / down</div>
+        <div><kbd>Z</kbd> <kbd>C</kbd></div><div>Roll</div>
+        <div><kbd>LMB</kbd></div><div>Fire twin cannons</div>
+        <div><kbd>E</kbd></div><div>Start missile lock (keep the target in your sights)</div>
+        <div><kbd>Q</kbd></div><div>Fire homing missile once locked — 2 per wave</div>
+        <div><kbd>ESC</kbd></div><div>Pause</div>
+      </div>
+      <div class="manual">
+        <p><b>You are in orbit.</b> Everything here — you, the enemy, every bolt you fire — falls around the black hole under real gravity. Nothing flies straight for long.</p>
+        <p>Burn <b class="c">prograde</b> (toward the ⊕ marker) to raise the far side of your orbit. Burn <b class="o">retrograde</b> to drop toward the hole. Lower orbits move faster.</p>
+        <p><b class="o">The hole is cover.</b> Nothing gets through it — not your bolts, not theirs, not a missile lock. Use it to break line of sight, or swing around it to catch a straggler on the far side. Stray too far out and a <b class="o">gravity wall</b> hauls you back in.</p>
+        <p>The cyan line is your predicted path. If it turns <b class="r">red</b> and ends at the hole, burn prograde now.</p>
+        <p><b class="o">Missiles:</b> press E with a hostile near your crosshair and hold it there until the lock completes, then press Q. They burn for 4 seconds, then fall ballistic and self-destruct — fire inside 1000 m.</p>
+        <p>Kills made while you are within 750 m of the singularity score <b class="o">DANGER CLOSE ×2</b>. Chain kills to build your multiplier.</p>
+      </div>
+      <div class="settings">
+        <label>Mouse sensitivity <input id="sens" type="range" min="0.4" max="2.5" step="0.05" value="1"></label>
+        <label class="check"><input id="invert" type="checkbox"> Invert Y</label>
+      </div>
+      <button id="btn-back" class="btn">BACK</button>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="card center">
+      <h2>PAUSED</h2>
+      <button id="btn-resume" class="btn primary">RESUME</button>
+      <button id="btn-quit" class="btn">ABANDON MISSION</button>
+    </div>
+  </div>
+
+  <div id="gameover" class="overlay hidden">
+    <div class="card center">
+      <div class="go-kicker">SIGNAL LOST</div>
+      <h2 id="go-cause">SHIP DESTROYED</h2>
+      <div class="go-stats">
+        <div><span>SCORE</span><b id="go-score">0</b></div>
+        <div><span>WAVE</span><b id="go-wave">1</b></div>
+        <div><span>KILLS</span><b id="go-kills">0</b></div>
+      </div>
+      <div id="go-best" class="best"></div>
+      <button id="btn-retry" class="btn primary">RELAUNCH</button>
+      <button id="btn-menu" class="btn">MAIN MENU</button>
+    </div>
+  </div>
+
+  <div id="loading" class="overlay"><div class="loading-text">SPINNING UP SINGULARITY…</div></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
