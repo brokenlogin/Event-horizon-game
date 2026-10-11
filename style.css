@@ -84,7 +84,7 @@ html, body {
 
 #radar-wrap { bottom: 20px; right: 20px; padding: 8px; }
 #radar { display: block; width: 240px; height: 240px; }
-.radar-cap { text-align: center; font-size: 10px; letter-spacing: 3px; color: var(--cyan-dim); margin-top: 2px; }
+.radar-cap { text-align: center; font-size: 9px; letter-spacing: 2px; color: var(--cyan-dim); margin-top: 2px; }
 
 /* crosshair & markers */
 #crosshair { position: absolute; width: 80px; height: 80px; margin: -40px 0 0 -40px; left: 50%; top: 50%; }
@@ -298,3 +298,10 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 #lockring.locked.salvage .lr-box { border-radius: 50%; transform: none; }
 #autopilot { position: absolute; top: 78px; left: 50%; transform: translateX(-50%); font-family: var(--font-display); font-size: 12px; letter-spacing: 3px; color: #6dff9a; text-shadow: 0 0 10px rgba(109, 255, 154, 0.6); white-space: nowrap; text-align: center; display: none; padding: 6px 14px; border: 1px solid rgba(109, 255, 154, 0.4); background: rgba(0, 20, 10, 0.35); }
 #autopilot small { display: block; font-size: 9px; letter-spacing: 2px; opacity: 0.7; margin-top: 3px; }
+
+/* scrollable cards (flight manual etc.) */
+.card { max-height: calc(100vh - 32px); overflow-y: auto; overscroll-behavior: contain; user-select: text; -webkit-user-select: text; }
+.card, .station-panel { scrollbar-width: thin; scrollbar-color: rgba(94, 242, 255, 0.45) transparent; }
+.card::-webkit-scrollbar, .station-panel::-webkit-scrollbar { width: 8px; }
+.card::-webkit-scrollbar-thumb, .station-panel::-webkit-scrollbar-thumb { background: rgba(94, 242, 255, 0.35); border-radius: 4px; }
+.card::-webkit-scrollbar-track, .station-panel::-webkit-scrollbar-track { background: transparent; }

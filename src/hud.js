@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RS, DISK_IN, DISK_OUT, ARENA_RADIUS, occludedByHole } from './physics.js';
+import { occludedByHole } from './physics.js';
 
 const $ = (id) => document.getElementById(id);
 const _v = new THREE.Vector3();
@@ -24,7 +24,6 @@ export class HUD {
       thF: $('th-f'), thL: $('th-l'), thR: $('th-r'), thU: $('th-u'), thD: $('th-d'),
     };
     this.radar = $('radar');
-    this.rctx = this.radar.getContext('2d');
     this.markerPool = [];
     this.arrowPool = [];
     this.warnKeys = '';
@@ -338,122 +337,4 @@ export class HUD {
     for (const k of ['lead', 'prograde', 'retrograde', 'peLabel', 'apLabel', 'lockring']) this.el[k].style.display = 'none';
   }
 
-  // ---------------------------------------------------------------------
-  // Radar: top-down orbital plot
-  // ---------------------------------------------------------------------
-  drawRadar(player, enemies, pred, time, station, wrecks) {
-    const c = this.rctx;
-    const W = this.radar.width, H = this.radar.height, cx = W / 2, cy = H / 2;
-    const R = W / 2 - 6;
-    const extent = Math.max(2200, station ? station.pos.length() * 1.08 : 0, Math.min(ARENA_RADIUS * 1.12, Math.max(player.pos.length(), pred.maxR || 0) * 1.15));
-    const k = R / extent;
-    c.clearRect(0, 0, W, H);
-
-    // backdrop
-    const g = c.createRadialGradient(cx, cy, 0, cx, cy, R);
-    g.addColorStop(0, 'rgba(20,40,60,0.55)');
-    g.addColorStop(1, 'rgba(5,12,20,0.35)');
-    c.fillStyle = g;
-    c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = 'rgba(94,242,255,0.18)';
-    c.lineWidth = 1;
-    const ringStep = extent > 1600 ? 500 : 250;
-    for (let rr = ringStep; rr < extent; rr += ringStep) {
-      c.beginPath(); c.arc(cx, cy, rr * k, 0, Math.PI * 2); c.stroke();
-    }
-    c.beginPath(); c.moveTo(cx - R, cy); c.lineTo(cx + R, cy); c.moveTo(cx, cy - R); c.lineTo(cx, cy + R); c.stroke();
-
-    // sweep
-    const sweep = (time * 1.2) % (Math.PI * 2);
-    const sg = c.createConicGradient ? c.createConicGradient(sweep, cx, cy) : null;
-    if (sg) {
-      sg.addColorStop(0, 'rgba(94,242,255,0.18)');
-      sg.addColorStop(0.12, 'rgba(94,242,255,0)');
-      sg.addColorStop(1, 'rgba(94,242,255,0)');
-      c.fillStyle = sg;
-      c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
-    }
-
-    // accretion disk + hole
-    const dg = c.createRadialGradient(cx, cy, DISK_IN * k, cx, cy, DISK_OUT * k);
-    dg.addColorStop(0, 'rgba(255,220,160,0.75)');
-    dg.addColorStop(0.35, 'rgba(255,140,50,0.4)');
-    dg.addColorStop(1, 'rgba(255,80,20,0)');
-    c.fillStyle = dg;
-    c.beginPath(); c.arc(cx, cy, DISK_OUT * k, 0, Math.PI * 2); c.arc(cx, cy, DISK_IN * k, 0, Math.PI * 2, true); c.fill();
-    c.fillStyle = '#000';
-    c.beginPath(); c.arc(cx, cy, Math.max(2.5, RS * 1.3 * k), 0, Math.PI * 2); c.fill();
-    c.strokeStyle = 'rgba(255,200,120,0.9)';
-    c.beginPath(); c.arc(cx, cy, Math.max(3, RS * 1.3 * k), 0, Math.PI * 2); c.stroke();
-
-    // predicted orbit
-    if (pred.count > 1) {
-      c.lineWidth = 1.5;
-      c.beginPath();
-      for (let i = 0; i < pred.count; i++) {
-        const x = cx + pred.positions[i * 3] * k;
-        const y = cy + pred.positions[i * 3 + 2] * k;
-        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
-      }
-      c.strokeStyle = pred.impact ? 'rgba(255,77,97,0.9)' : 'rgba(94,242,255,0.75)';
-      c.stroke();
-    }
-
-    // enemies
-    for (const e of enemies) {
-      if (!e.alive) continue;
-      const x = cx + e.pos.x * k, y = cy + e.pos.z * k;
-      const col = e.type === 'warden' ? '#ff5cf0' : e.type === 'seeker' ? '#ffd54a' : '#ff4d61';
-      // altitude tick: line toward the disk plane
-      c.strokeStyle = col; c.globalAlpha = 0.5; c.lineWidth = 1;
-      c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + THREE.MathUtils.clamp(e.pos.y * k, -14, 14)); c.stroke();
-      c.globalAlpha = 1;
-      c.fillStyle = col;
-      c.beginPath(); c.arc(x, y, e.type === 'warden' ? 4 : 3, 0, Math.PI * 2); c.fill();
-    }
-
-    // salvage and station
-    if (wrecks) {
-      c.fillStyle = '#6dff9a';
-      for (const w of wrecks) {
-        if (!w.alive) continue;
-        c.globalAlpha = w.life < 15 ? 0.4 : 0.85;
-        c.fillRect(cx + w.pos.x * k - 1.5, cy + w.pos.z * k - 1.5, 3, 3);
-      }
-      c.globalAlpha = 1;
-    }
-    if (station) {
-      const x = cx + station.pos.x * k, y = cy + station.pos.z * k;
-      c.strokeStyle = '#6dff9a'; c.lineWidth = 1.5;
-      c.shadowColor = '#6dff9a'; c.shadowBlur = 6;
-      c.strokeRect(x - 4, y - 4, 8, 8);
-      c.shadowBlur = 0;
-    }
-
-    // player
-    if (player.alive) {
-      const x = cx + player.pos.x * k, y = cy + player.pos.z * k;
-      const f = _v.set(0, 0, -1).applyQuaternion(player.quat);
-      const a = Math.atan2(f.z, f.x);
-      c.save();
-      c.translate(x, y); c.rotate(a);
-      c.fillStyle = '#fff';
-      c.shadowColor = '#5ef2ff'; c.shadowBlur = 8;
-      c.beginPath(); c.moveTo(8, 0); c.lineTo(-5, 5); c.lineTo(-2, 0); c.lineTo(-5, -5); c.closePath(); c.fill();
-      c.restore();
-    }
-
-    // gravity wall
-    if (ARENA_RADIUS * k < R) {
-      c.setLineDash([4, 4]);
-      c.strokeStyle = 'rgba(255,173,74,0.7)'; c.lineWidth = 1;
-      c.beginPath(); c.arc(cx, cy, ARENA_RADIUS * k, 0, Math.PI * 2); c.stroke();
-      c.setLineDash([]);
-    }
-    c.strokeStyle = 'rgba(94,242,255,0.5)'; c.lineWidth = 1.5;
-    c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.stroke();
-    c.fillStyle = 'rgba(94,242,255,0.6)';
-    c.font = '10px Orbitron, sans-serif';
-    c.fillText(`${Math.round(extent)}m`, cx + 4, 14);
-  }
 }

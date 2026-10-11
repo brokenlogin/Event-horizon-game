@@ -19,6 +19,7 @@ import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
 import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
 import { DockAssist } from './autopilot.js';
+import { Radar3D } from './radar3d.js';
 import { WreckSystem, COLLECT_RANGE } from './wrecks.js';
 import { StationUI, UPGRADES, newUpgradeLevels, REPAIR_HP_PER_SCRAP, REARM_COST } from './stationui.js';
 
@@ -193,6 +194,7 @@ window.addEventListener('resize', onResize);
 // ===========================================================================
 const audio = new GameAudio();
 const hud = new HUD();
+const radar = new Radar3D(document.getElementById('radar'));
 
 // ===========================================================================
 // Player
@@ -797,6 +799,7 @@ function startGame() {
   player.quat.setFromRotationMatrix(m);
   camQuat.copy(player.quat);
   station.reset(STATION_RADIUS, normal, Math.PI * 0.25 + 0.42);   // slow, thruster-held orbit
+  radar.setStationOrbit(station);
   shipParts.group.visible = true;
   shipParts.model.scale.set(1, 1, 1);
   for (const t of playerTrails) { t.mesh.visible = true; t.reset(player.pos); }
@@ -1425,7 +1428,7 @@ function tick(rawDt, render) {
       else updateNavMarkers();
       hud.setMissiles(missiles.ammo, missiles.capacity, missiles.lockInfo, camera);
       hud.updateMarkers(game.enemies, camera, player.pos, lockInfo.enemy);
-      hud.drawRadar(player, game.enemies, pred, visualTime, station, wrecks.list);
+      radar.update(player, game.enemies, wrecks.list, station, pred, camera.quaternion, visualTime);
     }
 
     // post fx

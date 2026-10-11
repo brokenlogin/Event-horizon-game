@@ -68,5 +68,6 @@ To use a different port: `./serve.sh 8080`.
 - `src/stationui.js`: upgrade definitions and the docked shop UI
 - `src/ships.js`: procedural ship models
 - `src/fx.js`: bolts, particles, trails, space dust
-- `src/hud.js`: HUD and orbital radar
+- `src/hud.js`: HUD markers, bars and notices
+- `src/radar3d.js`: the 3D holographic orbital radar (turns with your view)
 - `src/audio.js`: synthesized sound effects
