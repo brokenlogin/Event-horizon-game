@@ -18,13 +18,14 @@ Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's 
 
 - **No server of your own.** The connection is peer-to-peer WebRTC (via [PeerJS](https://peerjs.com)). PeerJS's free public matchmaking service handles only the handshake. After that, every guest talks directly to the host, which relays between guests.
 - **Works on the same Wi-Fi and over the internet** for most home networks. Some strict networks (certain mobile hotspots, corporate or university Wi-Fi) block direct connections; the lobby will say so. Try another network.
-- **Co-op waves that scale with the crew:** each extra pilot adds +75% hostiles (2 pilots 1.75×, 3 pilots 2.5×, 4 pilots 3.25×). The host's game runs the enemies and everyone sees the same ones. Each enemy hunts whichever pilot is closest.
+- **Co-op waves that scale with the crew:** each extra pilot adds +100% hostiles (2 pilots 2×, 3 pilots 3×, 4 pilots 4×) and makes upgrades 60% pricier (2 pilots 1.6×, 3 pilots 2.2×, 4 pilots 2.8×). The host's game runs the enemies and everyone sees the same ones. Each enemy hunts whichever pilot is closest.
 - **Fair hits:** each pilot's game decides whether enemy fire hits *their own* ship. Your hits on enemies go to the host, which applies the damage and credits the kill (and its score) to whoever made it.
 - **Shared economy:** wrecks appear for everyone and can be salvaged once. Scrap goes into one pool, and upgrades apply to every ship. Repairs and rearming use the shared pool but only fix your own ship.
 - **Four docking clamps:** each pilot has their own, and a clamp's light turns amber when it's occupied.
 - **Low lag:** ships and enemies are predicted with the same orbital physics between updates, so they stay smooth at internet latencies.
 - If a guest leaves, the flight carries on with the waves rescaled for who's left. If the host leaves, everyone else carries on solo.
-- You respawn 5 s after dying, and pausing doesn't stop the shared world.
+- **No free respawns:** when you're shot down you watch your wingmates. Click to switch who you follow. To bring you back, a living pilot docks at Kepler Station and spends **100 shared scrap** on your revive; you come back docked in your clamp. If every pilot is down at once, the run is over.
+- Pausing doesn't stop the shared world.
 - **To play from another computer on your network** without setting it up there, start the host's server with `./serve.sh --lan` and open the address it prints. The game can also be published with GitHub Pages: in the repo's Settings → Pages, choose *Deploy from a branch* → `main` / root. Then anyone can play from the link.
 
 ## Controls

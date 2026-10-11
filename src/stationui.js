@@ -18,12 +18,18 @@ export function newUpgradeLevels() {
 
 export const REPAIR_HP_PER_SCRAP = 4;
 export const REARM_COST = 8;
+export const REVIVE_COST = 100;
+
+/** Price of the next level of an upgrade, with the crew-size multiplier applied. */
+export function upgradeCost(u, lvl, mult = 1) {
+  return lvl < u.costs.length ? Math.round(u.costs[lvl] * mult) : null;
+}
 
 const $ = (id) => document.getElementById(id);
 
 /**
  * Docked UI. Callbacks: buy(id), repair(), rearm(), undock(), callWave()
- * view(): returns { scrap, levels, hull, maxHull, ammo, capacity, waveTimer, waveActive, hostiles, underAttack }
+ * view(): returns { scrap, levels, hull, maxHull, ammo, capacity, waveTimer, waveActive, hostiles, underAttack, costMult, dead: [{id, name}] }
  */
 export class StationUI {
   constructor(callbacks, view, audio) {
@@ -39,6 +45,7 @@ export class StationUI {
       e.stopPropagation();
       const act = b.dataset.act;
       if (act === 'buy') this.cb.buy(b.dataset.id);
+      else if (act === 'revive') this.cb.revive(Number(b.dataset.id));
       else if (this.cb[act]) this.cb[act]();
       this.render(true);
     });
@@ -55,7 +62,7 @@ export class StationUI {
   render(force = false) {
     const v = this.view();
     // static-ish content: only rebuild when something purchasable changed
-    const key = JSON.stringify([v.scrap, v.levels, Math.ceil(v.hull), v.maxHull, v.ammo, v.capacity]);
+    const key = JSON.stringify([v.scrap, v.levels, Math.ceil(v.hull), v.maxHull, v.ammo, v.capacity, v.costMult, v.dead]);
     if (force || key !== this.lastKey) {
       this.lastKey = key;
       $('st-scrap').textContent = v.scrap;
@@ -64,13 +71,19 @@ export class StationUI {
       this.list.innerHTML = UPGRADES.map((u) => {
         const lvl = v.levels[u.id];
         const max = u.costs.length;
-        const cost = lvl < max ? u.costs[lvl] : null;
+        const cost = upgradeCost(u, lvl, v.costMult || 1);
         const pips = Array.from({ length: max }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('');
         const btn = cost === null
           ? '<button class="st-buy" disabled>MAXED</button>'
           : `<button class="st-buy" data-act="buy" data-id="${u.id}" ${v.scrap < cost ? 'disabled' : ''}>${cost} <span>SCRAP</span></button>`;
         return `<div class="st-item"><div class="st-info"><div class="st-name">${u.name}</div><div class="st-desc">${u.desc}</div><div class="st-pips">${pips}</div></div>${btn}</div>`;
       }).join('');
+      // fallen wingmates (multiplayer)
+      const rev = $('st-revive');
+      const dead = v.dead || [];
+      rev.classList.toggle('hidden', dead.length === 0);
+      $('st-revive-list').innerHTML = dead.map((d) => `<div class="st-item"><div class="st-info"><div class="st-name">${d.name}</div><div class="st-desc">Destroyed — waiting for a revive</div></div><button class="st-buy revive" data-act="revive" data-id="${d.id}" ${v.scrap < REVIVE_COST ? 'disabled' : ''}>${REVIVE_COST} <span>SCRAP</span></button></div>`).join('');
+      $('st-cost-note').textContent = v.costMult > 1 ? `CREW PRICING ×${v.costMult.toFixed(1)}` : '';
       const missing = Math.max(0, v.maxHull - v.hull);
       const repairCost = Math.ceil(missing / REPAIR_HP_PER_SCRAP);
       const rb = $('st-repair');

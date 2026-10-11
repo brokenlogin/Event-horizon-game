@@ -104,7 +104,11 @@
         <div><span>HULL</span><b id="st-hull">100 / 100</b></div>
         <div><span>MISSILES</span><b id="st-ammo">2 / 2</b></div>
       </div>
-      <div class="st-section">UPGRADES</div>
+      <div id="st-revive" class="hidden">
+        <div class="st-section revive">REVIVE WINGMATES</div>
+        <div id="st-revive-list"></div>
+      </div>
+      <div class="st-section">UPGRADES <span id="st-cost-note" class="st-cost-note"></span></div>
       <div id="st-upgrades"></div>
       <div class="st-section">SERVICES</div>
       <div class="st-services">
@@ -116,6 +120,13 @@
         <button id="btn-callwave" class="btn small" data-act="callWave">CALL NEXT WAVE <kbd>N</kbd></button>
       </div>
     </div>
+  </div>
+
+  <div id="spectate" class="hidden">
+    <div class="sp-title">SHIP DESTROYED</div>
+    <div class="sp-sub">A wingmate can revive you by docking at <b>Kepler Station</b> and spending <b>100</b> shared scrap</div>
+    <div class="sp-info"><span id="sp-scrap">SCRAP 0 / 100</span> · <span id="sp-wave">WAVE 1</span></div>
+    <div class="sp-watch">WATCHING <b id="sp-target">—</b> · CLICK FOR NEXT PILOT · ESC FOR MENU</div>
   </div>
 
   <div id="fade"></div>
@@ -159,7 +170,7 @@
         <p>Burn <b class="c">prograde</b> (toward the ⊕ marker) to raise the far side of your orbit. Burn <b class="o">retrograde</b> to drop toward the hole. Lower orbits move faster.</p>
         <p><b class="o">The hole is cover.</b> Nothing gets through it — not your bolts, not theirs, not a missile lock. Use it to break line of sight, or swing around it to catch a straggler on the far side. Stray too far out and a <b class="o">gravity wall</b> hauls you back in.</p>
         <p><b class="c">Salvage &amp; upgrades:</b> destroyed ships leave wrecks in orbit for 2 minutes. Fly within 75 m to salvage their scrap. Between waves you get 2 minutes — rendezvous with <b class="c">Kepler Station</b> (green marker). It holds a high, slow orbit. Get within 300 m while moving under 40 m/s relative to it and you dock automatically, or press <b class="c">B</b> and the docking assist will fly the rendezvous for you. Spare missiles double as <b class="c">salvage drones</b>: lock a wreck with E and fire, and the missile scoops up every wreck it flies through. Spend scrap on upgrades — but you can still be shot while docked.</p>
-        <p><b class="c">Multiplayer:</b> up to 4 pilots. Pick a callsign, host a room or join with its code, and the host starts the flight. Waves grow with the crew (+75% hostiles per extra pilot), enemies hunt whoever is closest, and scrap and upgrades are shared. The station has a docking clamp for each of you.</p>
+        <p><b class="c">Multiplayer:</b> up to 4 pilots. Pick a callsign, host a room or join with its code, and the host starts the flight. Waves grow with the crew (+100% hostiles and +60% upgrade prices per extra pilot), enemies hunt whoever is closest, and scrap and upgrades are shared. Shot down? A wingmate must dock and spend 100 scrap to revive you. If everyone is down, the run ends. The station has a docking clamp for each of you.</p>
         <p>The cyan line is your predicted path. If it turns <b class="r">red</b> and ends at the hole, burn prograde now.</p>
         <p><b class="o">Missiles:</b> press E with a hostile near your crosshair and hold it there until the lock completes, then press Q. They burn for 4 seconds, then fall ballistic and self-destruct — fire inside 1000 m.</p>
         <p>Kills made while you are within 750 m of the singularity score <b class="o">DANGER CLOSE ×2</b>. Chain kills to build your multiplier.</p>

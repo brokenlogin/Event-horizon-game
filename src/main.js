@@ -23,7 +23,7 @@ import { Radar3D } from './radar3d.js';
 import { net, PROTOCOL, MAX_PILOTS, normalizeCode } from './net.js';
 import { RemotePlayer } from './remote.js';
 import { WreckSystem, COLLECT_RANGE } from './wrecks.js';
-import { StationUI, UPGRADES, newUpgradeLevels, REPAIR_HP_PER_SCRAP, REARM_COST } from './stationui.js';
+import { StationUI, UPGRADES, newUpgradeLevels, upgradeCost, REPAIR_HP_PER_SCRAP, REARM_COST, REVIVE_COST } from './stationui.js';
 
 // ===========================================================================
 // Tunables
@@ -263,6 +263,7 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyB') toggleDockAssist();
   }
   if ((e.code === 'KeyP' || (e.code === 'Escape' && document.pointerLockElement !== canvas)) && state === 'playing') pauseGame();
+  else if ((e.code === 'KeyP' || e.code === 'Escape') && state === 'dead' && mp.spectating) setOverlay('pause');
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => { keys.clear(); firing = false; });
@@ -274,6 +275,7 @@ document.addEventListener('mousemove', (e) => {
   player.pendingPitch -= e.movementY * s * (invertY ? -1 : 1);
 });
 canvas.addEventListener('mousedown', (e) => {
+  if (state === 'dead' && mp.spectating) { cycleSpectate(); return; }
   if (state !== 'playing' || player.docked) return;
   if (document.pointerLockElement !== canvas) requestLock();
   if (e.button === 0) firing = true;
@@ -428,12 +430,15 @@ function updateEffects(dt) {
 // ===========================================================================
 // Spawning & waves
 // ===========================================================================
-/** More pilots, more hostiles: +0.75x per extra pilot (2 = 1.75x, 3 = 2.5x, 4 = 3.25x). */
+// Crew scaling: every extra pilot adds +100% hostiles and makes upgrades +60% pricier.
+const ENEMIES_PER_PILOT = 1.0;
+const COST_PER_PILOT = 0.6;
 function pilotCount() {
   if (!game.mp) return 1;
   return net.isHost ? 1 + net.openLinks().length : Math.max(2, mp.players.size);
 }
-function enemyScale() { return 1 + 0.75 * (pilotCount() - 1); }
+function enemyScale() { return 1 + ENEMIES_PER_PILOT * (pilotCount() - 1); }
+function costScale() { return 1 + COST_PER_PILOT * (pilotCount() - 1); }
 
 function waveComposition(n) {
   const list = [];
@@ -678,10 +683,12 @@ const stationUI = new StationUI({
   },
   undock: () => undock(),
   callWave: () => callNextWave(),
+  revive: (id) => requestRevive(id),
 }, () => ({
   scrap: game.scrap, levels: game.levels, hull: player.hull, maxHull: player.maxHull,
   ammo: missiles.ammo, capacity: missiles.capacity,
   waveTimer: game.waveTimer, waveActive: game.waveActive, mp: game.mp,
+  costMult: costScale(), dead: fallenPilots(),
   hostiles: game.enemies.length + game.spawnQueue.length, underAttack: game.underAttack > 0,
 }), audio);
 
@@ -718,7 +725,8 @@ function finishDock() {
   document.body.style.cursor = '';
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   stationUI.show();
-  hud.banner('DOCKED', 'KEPLER STATION · SPEND YOUR SCRAP', 2200);
+  if (mp.reviveBanner) { hud.banner('REVIVED', mp.reviveBanner, 3200); mp.reviveBanner = ''; }
+  else hud.banner('DOCKED', 'KEPLER STATION · SPEND YOUR SCRAP', 2200);
 }
 
 function undock() {
@@ -870,6 +878,8 @@ function startGame(opts = {}) {
   });
   forceUndockUI();
   dockAssist.disengage();
+  exitSpectate();
+  mp.wipeTimer = 0;
   applyUpgrades();
   missiles.ammo = missiles.capacity;
   Object.assign(player, {
@@ -915,6 +925,7 @@ function pauseGame() {
 }
 
 function resumeGame() {
+  if (state === 'dead' && mp.spectating) { setOverlay(null); return; }
   if (state !== 'paused') return;
   state = 'playing';
   setOverlay(null);
@@ -1494,7 +1505,9 @@ function tick(rawDt, render) {
     particles.update(dt);
     updateEffects(dt);
     if (player.docked && player.alive) updateDockCamera(rawDt);
+    else if (mp.spectating) updateSpectate(rawDt);
     else updateChaseCamera(rawDt);
+    if (game.mp && net.isHost) checkWipe(dt);
     playerBolts.updateVisuals(player.vel);
     enemyBolts.updateVisuals(player.vel);
     if (game.mp) {
@@ -1565,7 +1578,7 @@ function tick(rawDt, render) {
         // keep the ship model visible, stretched, as it falls
         updatePlayerVisual(dt, visualTime);
       }
-      if (game.mp) { if (game.deathTimer > 5) respawnPlayer(); }
+      if (game.mp) { if (game.deathTimer > 2.8 && !mp.spectating) enterSpectate(); }
       else if (game.deathTimer > 2.8) showGameOver();
     }
   } else if (state === 'menu' || state === 'gameover') {
@@ -1659,6 +1672,7 @@ const mp = {
   epoch: 0, sendTimer: 0, worldTimer: 0, waveSyncTimer: 0, starting: false, pendingStart: false,
   players: new Map(),      // pilot id -> { name, ready }
   reqId: 0, pending: new Map(), deadIds: new Set(),
+  spectating: false, spectateId: -1, wipeTimer: 0, reviveBanner: '',
 };
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -1768,13 +1782,99 @@ function pruneProxies() {
   for (const e of game.enemies) if (e.alive && e.proxy && now - e.lastSeen > 2.5) e.destroy();
 }
 
-/** Multiplayer death: come back after a few seconds, near another pilot if anyone's alive. */
-function respawnPlayer() {
-  let phase = Math.PI * 0.25;
-  let near = null;
-  for (const r of remotes.values()) if (r.present && r.alive) { near = r; break; }
-  if (near) phase = Math.atan2(near.pos.dot(station.w), near.pos.dot(station.u)) - MP_SPAWN_GAP;
-  setStartPose(phase);
+// ---------------------------------------------------------------------------
+// Death in multiplayer: you stay down and watch your wingmates until one of
+// them docks at the station and spends shared scrap to revive you. If every
+// pilot is down at once, the run is over.
+// ---------------------------------------------------------------------------
+const spectateEls = {
+  root: document.getElementById('spectate'), target: document.getElementById('sp-target'),
+  scrap: document.getElementById('sp-scrap'), wave: document.getElementById('sp-wave'),
+};
+
+/** Pilots who are down and waiting for a revive (as seen from here). */
+function fallenPilots() {
+  if (!game.mp) return [];
+  const list = [];
+  for (const [id, r] of remotes) if (r.present && !r.alive) list.push({ id, name: pilotName(id) });
+  return list;
+}
+
+function livingRemotes() { return [...remotes.entries()].filter(([, r]) => r.present && r.alive); }
+
+function enterSpectate() {
+  mp.spectating = true;
+  hud.show(false);
+  hud.hideMarkers();
+  spectateEls.root.classList.remove('hidden');
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  document.body.style.cursor = '';
+  cycleSpectate();
+}
+
+function exitSpectate() {
+  mp.spectating = false;
+  spectateEls.root.classList.add('hidden');
+}
+
+function cycleSpectate() {
+  const living = livingRemotes().map(([id]) => id);
+  if (!living.length) { mp.spectateId = -1; return; }
+  const i = living.indexOf(mp.spectateId);
+  mp.spectateId = living[(i + 1) % living.length];
+}
+
+const _specQ = new THREE.Quaternion();
+function updateSpectate(dt) {
+  let r = remotes.get(mp.spectateId);
+  if (!r || !r.present || !r.alive) { cycleSpectate(); r = remotes.get(mp.spectateId); }
+  if (r && r.present && r.alive) {
+    // chase camera behind the watched pilot
+    _specQ.copy(r.quat);
+    camQuat.slerp(_specQ, 1 - Math.exp(-dt * 6));
+    camOffset.set(0, 3, 14).applyQuaternion(camQuat);
+    camera.position.copy(r.renderPos).add(camOffset);
+    camera.quaternion.copy(camQuat);
+    spectateEls.target.textContent = `${r.name}${r.docked ? ' (DOCKED)' : ''}`;
+  } else {
+    spectateEls.target.textContent = 'NOBODY — EVERY PILOT IS DOWN';
+  }
+  if (Math.abs(camera.fov - 72) > 0.01) { camera.fov = 72; camera.updateProjectionMatrix(); }
+  camera.updateMatrixWorld();
+  const enough = game.scrap >= REVIVE_COST;
+  spectateEls.scrap.innerHTML = `<span class="${enough ? 'ok' : ''}">SHARED SCRAP ${game.scrap} / ${REVIVE_COST}</span>`;
+  const hostiles = game.enemies.length + game.spawnQueue.length;
+  spectateEls.wave.textContent = game.waveActive ? `WAVE ${game.wave} · ${hostiles} HOSTILE${hostiles === 1 ? '' : 'S'}` :
+    `NEXT WAVE ${Math.max(0, Math.ceil(game.waveTimer))} s`;
+}
+
+/** Docked pilot asks to revive a fallen wingmate (the host checks and pays from the shared pool). */
+function requestRevive(id) {
+  if (!game.mp || !player.alive || !player.docked) return;
+  if (isGuest()) { net.sendEvent({ k: 'reviveReq', id }); return; }
+  hostRevive(id, net.myId);
+}
+
+function hostRevive(id, by) {
+  const target = id === net.myId ? null : remotes.get(id);
+  const isDown = id === net.myId ? !player.alive : !!(target && target.present && !target.alive);
+  if (!isDown) return;
+  if (game.scrap < REVIVE_COST) { if (by !== net.myId) net.sendEvent({ k: 'denied', why: 'NOT ENOUGH SHARED SCRAP TO REVIVE' }, by); else hud.notice('NOT ENOUGH SHARED SCRAP TO REVIVE', 'red'); return; }
+  game.scrap -= REVIVE_COST;
+  econBroadcast();
+  net.sendEvent({ k: 'revived', id, by });
+  onRevived(id, by);
+}
+
+function onRevived(id, by) {
+  audio.purchase();
+  if (id === net.myId) reviveAtStation(by);
+  else hud.notice(`${pilotName(id)} REVIVED BY ${by === net.myId ? 'YOU' : pilotName(by)}`, 'green');
+}
+
+/** Come back to life docked in our own clamp at the station. */
+function reviveAtStation(by) {
+  exitSpectate();
   Object.assign(player, {
     alive: true, hull: player.maxHull, shield: SHIELD_MAX, heat: 0, overheated: false, shieldDelay: 0,
     pendingYaw: 0, pendingPitch: 0, yawRate: 0, pitchRate: 0, throttle: 0, needsClearance: false,
@@ -1783,11 +1883,34 @@ function respawnPlayer() {
   game.timeScale = 1;
   game.deathTimer = 0;
   finalPass.uniforms.uFade.value = 0;
+  station.toWorld(station.clampLocal(myClamp()), player.pos);
+  player.vel.copy(station.vel);
+  player.quat.copy(station.quat);
   shipParts.group.visible = true;
   shipParts.model.scale.set(1, 1, 1);
   for (const t of playerTrails) t.reset(player.pos);
   state = 'playing';
-  hud.banner('BACK IN THE FIGHT', `RESPAWNED NEAR ${near ? near.name : 'THE START ORBIT'}`, 2400);
+  hud.show(true);
+  player.docking = true;
+  station.beginDock(player, myClamp());
+  // shown once the docking clamps close (see finishDock)
+  mp.reviveBanner = `${by === net.myId ? 'BACK ONLINE' : `BY ${pilotName(by)}`} · SHOP, THEN UNDOCK WITH [F]`;
+}
+
+/** Host: if every pilot is down for a few seconds, the run ends for everyone. */
+function checkWipe(dt) {
+  const anyoneAlive = player.alive || livingRemotes().length > 0;
+  mp.wipeTimer = anyoneAlive ? 0 : mp.wipeTimer + dt;
+  if (mp.wipeTimer > 3) {
+    net.sendEvent({ k: 'wipe', wave: game.wave });
+    endRunWiped();
+  }
+}
+
+function endRunWiped() {
+  exitSpectate();
+  game.deathCause = 'ALL PILOTS LOST';
+  showGameOver();
 }
 
 /** Wave cleared: everyone gets the bonus, a patch-up and full shields. */
@@ -1847,6 +1970,8 @@ function broadcastRoster() {
 }
 
 function leaveMultiplayer() {
+  exitSpectate();
+  mp.wipeTimer = 0;
   if (net.role) net.close();
   game.mp = false;
   mp.players.clear();
@@ -1883,8 +2008,8 @@ function buyUpgrade(id) {
   const u = UPGRADES.find((x) => x.id === id);
   if (!u) return null;
   const lvl = game.levels[id];
-  const cost = u.costs[lvl];
-  if (cost === undefined || game.scrap < cost) return null;
+  const cost = upgradeCost(u, lvl, costScale());
+  if (cost === null || game.scrap < cost) return null;
   game.scrap -= cost;
   applyLevels({ ...game.levels, [id]: lvl + 1 });
   econBroadcast();
@@ -1994,7 +2119,7 @@ net.on('d', (d) => {
   _v1.fromArray(d.p); _v2.fromArray(d.v);
   explode(_v1, _v2, 1.6, [1.0, 0.6, 0.2]);
   audio.explosion(1.4, THREE.MathUtils.clamp(1.4 - _v1.distanceTo(player.pos) / 700, 0.15, 1));
-  hud.notice(`${pilotName(d.from)} DESTROYED · RESPAWNING`, 'orange');
+  hud.notice(`${pilotName(d.from)} DOWN · DOCK AND SPEND ${REVIVE_COST} SCRAP TO REVIVE`, 'orange');
 });
 
 // enemies, waves and wrecks (host → guests)
@@ -2043,6 +2168,8 @@ net.on('kill', (m) => {
   }
 });
 net.on('salvaged', (m) => { if (isGuest()) wrecks.removeById(m.id); });
+net.on('revived', (m) => { if (isGuest()) onRevived(m.id, m.by); });
+net.on('wipe', () => { if (isGuest()) endRunWiped(); });
 
 // guest reports (→ host)
 const enemyById = (id) => game.enemies.find((x) => x.netId === id && x.alive);
@@ -2057,6 +2184,7 @@ net.on('ram', (m) => {
   if (e) killEnemy(e, m.cause, m.from);
 });
 net.on('callWave', () => { if (game.mp && net.isHost) callNextWave(); });
+net.on('reviveReq', (m) => { if (game.mp && net.isHost) hostRevive(m.id, m.from); });
 net.on('salvage', (m) => {
   if (!game.mp || !net.isHost) return;
   const w = wrecks.byId(m.id);
@@ -2110,7 +2238,8 @@ net.on('disconnected', (reason) => {
     game.waveActive = false;
     game.waveTimer = 10;
     hud.setLink(null);
-    hud.banner('HOST DISCONNECTED', `${reason} · CONTINUING SOLO · NEXT WAVE IN 10 s`, 4500);
+    if (mp.spectating) { exitSpectate(); hud.show(true); showGameOver(); }
+    else hud.banner('HOST DISCONNECTED', `${reason} · CONTINUING SOLO · NEXT WAVE IN 10 s`, 4500);
   } else if (lobbyOpen()) {
     showLobbyChoice();
     setLobbyStatus(reason, 'error');
@@ -2196,7 +2325,9 @@ function renderRoom() {
   lobbyEls.count.textContent = `${Math.max(1, ids.length)} / ${MAX_PILOTS}`;
   lobbyEls.start.classList.toggle('hidden', !host);
   lobbyEls.start.disabled = !(host && ready > 0);
-  lobbyEls.start.textContent = host && ready > 0 ? `START · ${ready + 1} PILOTS · HOSTILES ×${(1 + 0.75 * ready).toFixed(2)}` : 'START';
+  lobbyEls.start.textContent = host && ready > 0
+    ? `START · ${ready + 1} PILOTS · HOSTILES ×${(1 + ENEMIES_PER_PILOT * ready).toFixed(1)} · PRICES ×${(1 + COST_PER_PILOT * ready).toFixed(1)}`
+    : 'START';
 }
 
 function openLobby() {
@@ -2296,5 +2427,5 @@ window.__eh = {
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
-  net, remotes, allyBolts, playerBolts, enemyBolts, mp, respawnPlayer, hostGame, joinGame, hostStart, addScrap, enemyScale, pilotCount,
+  net, remotes, allyBolts, playerBolts, enemyBolts, mp, reviveAtStation, requestRevive, hostGame, joinGame, hostStart, addScrap, enemyScale, costScale, pilotCount,
   game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };

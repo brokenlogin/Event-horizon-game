@@ -348,3 +348,17 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .lp-ping { margin-left: auto; font-family: var(--font-display); font-size: 10px; color: rgba(217, 246, 255, 0.6); }
 .lp.empty { justify-content: center; color: rgba(217, 246, 255, 0.4); font-size: 14px; letter-spacing: 1px; border-style: dashed; animation: blink 1.6s steps(2) infinite; }
 #btn-start:disabled { opacity: 0.35; cursor: default; transform: none; box-shadow: none; background: rgba(94, 242, 255, 0.08); color: var(--cyan-dim); }
+
+/* revive + spectating */
+.st-section.revive { color: var(--orange); }
+.st-cost-note { float: right; color: var(--orange); letter-spacing: 2px; }
+.st-buy.revive { background: var(--orange); color: #1a0d00; }
+#spectate { position: fixed; left: 50%; top: 14%; transform: translateX(-50%); z-index: 6; text-align: center; pointer-events: none; width: min(680px, calc(100% - 32px)); }
+#spectate.hidden { display: none; }
+.sp-title { font-family: var(--font-display); font-weight: 900; font-size: 40px; letter-spacing: 10px; color: var(--red); text-shadow: 0 0 24px rgba(255, 77, 97, 0.7); }
+.sp-sub { font-size: 18px; color: rgba(217, 246, 255, 0.85); margin-top: 8px; }
+.sp-sub b { color: #fff; }
+.sp-info { font-family: var(--font-display); font-size: 13px; letter-spacing: 3px; color: var(--cyan); margin-top: 14px; }
+.sp-info .ok { color: #6dff9a; }
+.sp-watch { font-family: var(--font-display); font-size: 11px; letter-spacing: 3px; color: rgba(217, 246, 255, 0.6); margin-top: 10px; }
+.sp-watch b { color: #ffad4a; font-weight: 500; }
