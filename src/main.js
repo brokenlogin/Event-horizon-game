@@ -20,6 +20,8 @@ import { MissileSystem } from './missiles.js';
 import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
 import { DockAssist } from './autopilot.js';
 import { Radar3D } from './radar3d.js';
+import { net, PROTOCOL, normalizeCode } from './net.js';
+import { RemotePlayer } from './remote.js';
 import { WreckSystem, COLLECT_RANGE } from './wrecks.js';
 import { StationUI, UPGRADES, newUpgradeLevels, REPAIR_HP_PER_SCRAP, REARM_COST } from './stationui.js';
 
@@ -101,6 +103,9 @@ const dust = createDust(scene);
 const particles = new Particles(scene, 9000);
 const playerBolts = new BoltPool(scene, { max: 400, color: 0x4af0ff, radius: 0.07, length: 4.5, glowRadius: 0.24 });
 const enemyBolts = new BoltPool(scene, { max: 500, color: 0xff3050, radius: 0.16, length: 3.5, glowRadius: 0.55 });
+const allyBolts = new BoltPool(scene, { max: 400, color: 0xffa040, radius: 0.07, length: 4.5, glowRadius: 0.24 });
+const remote = new RemotePlayer(scene);
+const NO_TARGETS = [];
 
 // --- predicted orbit line ---
 const pred = createPrediction(720);
@@ -232,6 +237,7 @@ let invertY = store.get('eh_invert', false);
 let hadLock = false;
 
 window.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement) return;   // typing a room code
   if (['Space', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (state === 'playing' && player.alive && !e.repeat) {
@@ -289,6 +295,7 @@ const game = {
   time: 0, timeScale: 1, deathTimer: 0, deathCause: '', trauma: 0, damageFlash: 0,
   warnBeep: 0, proximityBeep: 0, plasmaFx: 0,
   scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
+  mp: false,
   enemyFire,
 };
 let best = store.get('eh_best', 0);
@@ -616,7 +623,7 @@ const stationUI = new StationUI({
 }, () => ({
   scrap: game.scrap, levels: game.levels, hull: player.hull, maxHull: player.maxHull,
   ammo: missiles.ammo, capacity: missiles.capacity,
-  waveTimer: game.waveTimer, waveActive: game.waveActive,
+  waveTimer: game.waveTimer, waveActive: game.waveActive, mp: game.mp,
   hostiles: game.enemies.length + game.spawnQueue.length, underAttack: game.underAttack > 0,
 }), audio);
 
@@ -725,6 +732,7 @@ function killPlayer(cause) {
   missiles.cancelLock(true);
   dockAssist.disengage();
   if (player.docked || player.docking) forceUndockUI();
+  if (game.mp) net.sendEvent({ k: 'd', p: r2(player.pos), v: r2(player.vel) });
   state = 'dead';
   firing = false;
   audio.silenceEngine();
@@ -751,6 +759,7 @@ function firePlayer(lockInfo) {
   }
   _v3.copy(player.vel).addScaledVector(dir, BOLT_SPEED);
   playerBolts.spawn(muzzle, _v3, BOLT_LIFE, cannonDamage());
+  if (game.mp) net.sendEvent({ k: 'f', t: net.netTime(), p: r2(muzzle), v: r2(_v3) });
   particles.emit(muzzle.x, muzzle.y, muzzle.z, player.vel.x + dir.x * 20, player.vel.y + dir.y * 20, player.vel.z + dir.z * 20, 0.6, 2.2, 3, 1.4, 0.3, 0.07, false);
   player.heat += HEAT_PER_SHOT;
   if (player.heat >= 1) { player.heat = 1; player.overheated = true; audio.beep(220, 0.25, 0.08, 'sawtooth'); }
@@ -768,15 +777,34 @@ function clearWorld() {
   enemyBolts.clear();
   missiles.clear();
   wrecks.clear();
+  allyBolts.clear();
   particles.clear();
   for (const d of debris) d.visible = false;
   for (const s of shockwaves) s.visible = false;
 }
 
-function startGame() {
+const START_NORMAL = new THREE.Vector3(0.12, 1, 0.08).normalize();
+const STATION_PHASE0 = Math.PI * 0.25 + 0.42;
+const MP_SPAWN_GAP = 250 / START_RADIUS;   // radians along the start orbit
+
+/** Put the player on the start orbit at `phase`, nose mostly prograde and angled toward the hole. */
+function setStartPose(phase) {
+  circularOrbitState(START_RADIUS, START_NORMAL, phase, player.pos, player.vel);
+  const pro = _v1.copy(player.vel).normalize();
+  const inward = _v2.copy(player.pos).normalize().negate();
+  const look = pro.multiplyScalar(Math.cos(0.6)).addScaledVector(inward, Math.sin(0.6)).normalize();
+  // Matrix4.lookAt aims -Z at the target
+  player.quat.setFromRotationMatrix(new THREE.Matrix4().lookAt(new THREE.Vector3(), look, START_NORMAL));
+  camQuat.copy(player.quat);
+}
+
+function startGame(opts = {}) {
   clearWorld();
+  const multiplayer = !!opts.multiplayer;
   Object.assign(game, {
-    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: 4, waveActive: false,
+    mp: multiplayer,
+    // multiplayer preview is free flight: no waves until enemy sync exists
+    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? -1 : 4, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
     scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   });
@@ -788,25 +816,21 @@ function startGame() {
     alive: true, hull: BASE_HULL, shield: SHIELD_MAX, needsClearance: false, heat: 0, overheated: false, shieldDelay: 0, fireCd: 0, gun: 0,
     pendingYaw: 0, pendingPitch: 0, yawRate: 0, pitchRate: 0, throttle: 0,
   });
-  const normal = new THREE.Vector3(0.12, 1, 0.08).normalize();
-  circularOrbitState(START_RADIUS, normal, Math.PI * 0.25, player.pos, player.vel);
-  // face mostly prograde, angled toward the hole so it's in view
-  const pro = _v1.copy(player.vel).normalize();
-  const inward = _v2.copy(player.pos).normalize().negate();
-  const look = pro.multiplyScalar(Math.cos(0.6)).addScaledVector(inward, Math.sin(0.6)).normalize();
-  // Matrix4.lookAt aims -Z at the target
-  const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), look, normal);
-  player.quat.setFromRotationMatrix(m);
-  camQuat.copy(player.quat);
-  station.reset(STATION_RADIUS, normal, Math.PI * 0.25 + 0.42);   // slow, thruster-held orbit
+  // in multiplayer the client spawns ~250 m ahead of the host on the same orbit
+  setStartPose(Math.PI * 0.25 + (multiplayer && net.role === 'client' ? MP_SPAWN_GAP : 0));
+  station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // slow, thruster-held orbit
+  if (multiplayer) syncStation();
   radar.setStationOrbit(station);
+  remote.remove();
+  remote.name = net.role === 'client' ? 'PILOT 1' : 'PILOT 2';
   shipParts.group.visible = true;
   shipParts.model.scale.set(1, 1, 1);
   for (const t of playerTrails) { t.mesh.visible = true; t.reset(player.pos); }
   orbitLine.visible = true;
   hud.show(true);
   hud.clearPopups();
-  hud.banner('ORBIT ESTABLISHED', 'HOSTILES APPROACHING · STAND BY', 2400);
+  if (multiplayer) hud.banner('LINK ESTABLISHED', `FREE FLIGHT WITH ${remote.name} · CLICK TO TAKE THE CONTROLS`, 3500);
+  else hud.banner('ORBIT ESTABLISHED', 'HOSTILES APPROACHING · STAND BY', 2400);
   state = 'playing';
   setOverlay(null);
   document.body.style.cursor = 'none';
@@ -817,6 +841,9 @@ function pauseGame() {
   state = 'paused';
   firing = false;
   keys.clear();
+  player.thrustAcc.set(0, 0, 0);
+  player.throttle = 0;
+  document.getElementById('pause-note').classList.toggle('hidden', !game.mp);
   audio.silenceEngine();
   setOverlay('pause');
   document.body.style.cursor = '';
@@ -834,6 +861,7 @@ function resumeGame() {
 }
 
 function toMenu() {
+  leaveMultiplayer();
   clearWorld();
   forceUndockUI();
   station.setVisible(false);
@@ -854,6 +882,7 @@ function toMenu() {
 }
 
 function showGameOver() {
+  leaveMultiplayer();
   state = 'gameover';
   if (game.score > best) { best = game.score; store.set('eh_best', best); }
   document.getElementById('go-cause').textContent = game.deathCause;
@@ -1049,6 +1078,10 @@ const playerTarget = { pos: player.pos, radius: player.radius, alive: true };
 
 function physicsStep(h) {
   station.physics(h);
+  if (game.mp) {
+    remote.physics(h);
+    allyBolts.step(h, NO_TARGETS, null);
+  }
   wrecks.physics(h);
   if (player.alive && (player.docked || player.docking)) {
     // slaved to the docking port (see Station.holdPlayer)
@@ -1305,8 +1338,9 @@ function frame() {
 
 function tick(rawDt, render) {
   visualTime += rawDt;
+  net.update(rawDt);
 
-  if (state === 'playing' || state === 'dead') {
+  if (state === 'playing' || state === 'dead' || (state === 'paused' && game.mp)) {
     const dt = rawDt * game.timeScale;
     game.time += dt;
 
@@ -1334,6 +1368,7 @@ function tick(rawDt, render) {
     game.enemies = game.enemies.filter((e) => e.alive);
 
     // station, docking, salvage
+    if (game.mp) syncStation();
     station.update(dt, visualTime);
     if (player.alive && (player.docked || player.docking)) {
       const done = station.holdPlayer(player, dt);
@@ -1389,6 +1424,11 @@ function tick(rawDt, render) {
     else updateChaseCamera(rawDt);
     playerBolts.updateVisuals(player.vel);
     enemyBolts.updateVisuals(player.vel);
+    if (game.mp) {
+      remote.update(dt, camera.position, visualTime, station);
+      allyBolts.updateVisuals(player.vel);
+      sendSnapshot(rawDt);
+    }
 
     // HUD
     const warnings = [];
@@ -1418,6 +1458,8 @@ function tick(rawDt, render) {
         dockRange: DOCK_RANGE, dockSpeed: DOCK_MAX_REL_SPEED, needsClearance: player.needsClearance, assist: dockAssist.active,
       });
       hud.updateWrecks(wrecks.list, camera, player.pos, COLLECT_RANGE);
+      hud.updateAlly(game.mp ? remote : null, camera, player.pos);
+      hud.setLink(game.mp ? net.rtt : null);
       hud.setAutopilot(dockAssist.active ? {
         mode: dockAssist.mode, dist: station.pos.distanceTo(player.pos), rel: station.relativeSpeed(player),
         eta: dockAssist.eta, burning: player.throttle > 0.1,
@@ -1428,7 +1470,7 @@ function tick(rawDt, render) {
       else updateNavMarkers();
       hud.setMissiles(missiles.ammo, missiles.capacity, missiles.lockInfo, camera);
       hud.updateMarkers(game.enemies, camera, player.pos, lockInfo.enemy);
-      radar.update(player, game.enemies, wrecks.list, station, pred, camera.quaternion, visualTime);
+      radar.update(player, game.enemies, wrecks.list, station, pred, camera.quaternion, visualTime, game.mp ? remote : null);
     }
 
     // post fx
@@ -1448,7 +1490,8 @@ function tick(rawDt, render) {
         // keep the ship model visible, stretched, as it falls
         updatePlayerVisual(dt, visualTime);
       }
-      if (game.deathTimer > 2.8) showGameOver();
+      if (game.mp) { if (game.deathTimer > 5) respawnPlayer(); }
+      else if (game.deathTimer > 2.8) showGameOver();
     }
   } else if (state === 'menu' || state === 'gameover') {
     updateMenuCamera(rawDt);
@@ -1473,7 +1516,7 @@ function tick(rawDt, render) {
 // ===========================================================================
 // Menus
 // ===========================================================================
-const overlays = ['menu', 'controls', 'pause', 'gameover'];
+const overlays = ['menu', 'controls', 'pause', 'gameover', 'lobby'];
 function setOverlay(name) {
   for (const o of overlays) document.getElementById(o).classList.toggle('hidden', o !== name);
 }
@@ -1518,11 +1561,221 @@ sensEl.addEventListener('input', () => { sensitivity = parseFloat(sensEl.value);
 invEl.addEventListener('change', () => { invertY = invEl.checked; store.set('eh_invert', invertY); });
 
 window.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement) return;
   if (e.code === 'Enter') {
-    if (state === 'menu') launch();
+    if (state === 'menu' && !lobbyOpen()) launch();
     else if (state === 'paused') resumeGame();
     else if (state === 'gameover') launch();
   }
+});
+
+// ===========================================================================
+// Multiplayer (peer-to-peer, see net.js / remote.js)
+// ===========================================================================
+const SNAPSHOT_INTERVAL = 1 / 20;
+const mp = { epoch: 0, helloReceived: false, sendTimer: 0, starting: false };
+
+const round2 = (x) => Math.round(x * 100) / 100;
+function r2(v) { return [round2(v.x), round2(v.y), round2(v.z)]; }
+
+/** The station's orbit is analytic, so both players derive its phase from the shared clock. */
+function syncStation() {
+  station.phase = STATION_PHASE0 + station.omega * (net.netTime() - mp.epoch);
+  station.stateAt(0, station.pos, station.vel);
+}
+
+function sendSnapshot(dt) {
+  if (!net.connected) return;
+  mp.sendTimer -= dt;
+  if (mp.sendTimer > 0) return;
+  mp.sendTimer = SNAPSHOT_INTERVAL;
+  const q = player.quat;
+  net.sendState({
+    k: 's', t: net.netTime(),
+    p: r2(player.pos), v: r2(player.vel), a: r2(player.thrustAcc),
+    q: [q.x, q.y, q.z, q.w].map((x) => Math.round(x * 1e4) / 1e4),
+    th: round2(player.throttle), al: player.alive ? 1 : 0, dk: (player.docked || player.docking) ? 1 : 0,
+    hu: Math.round(player.hull), sh: Math.round(player.shield),
+  });
+}
+
+/** Multiplayer death: come back after a few seconds, near the other pilot if they're around. */
+function respawnPlayer() {
+  let phase = Math.PI * 0.25;
+  if (remote.present && remote.alive) {
+    phase = Math.atan2(remote.pos.dot(station.w), remote.pos.dot(station.u)) - MP_SPAWN_GAP;
+  }
+  setStartPose(phase);
+  Object.assign(player, {
+    alive: true, hull: player.maxHull, shield: SHIELD_MAX, heat: 0, overheated: false, shieldDelay: 0,
+    pendingYaw: 0, pendingPitch: 0, yawRate: 0, pitchRate: 0, throttle: 0, needsClearance: false,
+  });
+  missiles.ammo = missiles.capacity;
+  game.timeScale = 1;
+  game.deathTimer = 0;
+  finalPass.uniforms.uFade.value = 0;
+  shipParts.group.visible = true;
+  shipParts.model.scale.set(1, 1, 1);
+  for (const t of playerTrails) t.reset(player.pos);
+  state = 'playing';
+  hud.banner('BACK IN THE FIGHT', `RESPAWNED NEAR ${remote.present ? remote.name : 'THE START ORBIT'}`, 2400);
+}
+
+function startMultiplayer() {
+  if (mp.starting) return;
+  mp.starting = true;
+  setLobbyStatus('Linked — launching', 'busy');
+  const fade = document.getElementById('fade');
+  fade.classList.add('on');
+  setTimeout(() => {
+    startGame({ multiplayer: true });
+    fade.classList.remove('on');
+    mp.starting = false;
+  }, 450);
+}
+
+function maybeStartClient() {
+  if (net.role === 'client' && net.connected && net.synced && mp.helloReceived && !game.mp && state === 'menu') startMultiplayer();
+}
+
+function leaveMultiplayer() {
+  if (net.role) net.close(true);
+  game.mp = false;
+  mp.helloReceived = false;
+  remote.remove();
+  allyBolts.clear();
+  hud.setLink(null);
+}
+
+net.on('connected', () => {
+  if (net.role === 'host') {
+    mp.epoch = net.netTime();
+    net.sendEvent({ k: 'hello', v: PROTOCOL, epoch: mp.epoch });
+    startMultiplayer();
+  } else {
+    setLobbyStatus('Linked — syncing clocks', 'busy');
+  }
+});
+net.on('hello', (h) => {
+  if (h.v !== PROTOCOL) {
+    setLobbyStatus('The other pilot is running a different version of the game. Both of you need the latest copy.', 'error');
+    net.close(true);
+    return;
+  }
+  mp.epoch = h.epoch;
+  mp.helloReceived = true;
+  maybeStartClient();
+});
+net.on('synced', () => maybeStartClient());
+net.on('s', (snap) => { if (game.mp) remote.applySnapshot(snap, net.netTime()); });
+net.on('f', (f) => {
+  if (!game.mp) return;
+  const late = Math.min(Math.max(net.netTime() - f.t, 0), 0.5);
+  _v1.fromArray(f.p); _v2.fromArray(f.v);
+  _v1.addScaledVector(_v2, late);
+  allyBolts.spawn(_v1, _v2, BOLT_LIFE - late, 0);
+  const d = _v1.distanceTo(player.pos);
+  if (d < 400) audio.enemyLaser(THREE.MathUtils.clamp(1 - d / 400, 0, 0.6));
+});
+net.on('d', (d) => {
+  if (!game.mp) return;
+  _v1.fromArray(d.p); _v2.fromArray(d.v);
+  explode(_v1, _v2, 1.6, [1.0, 0.6, 0.2]);
+  audio.explosion(1.4, THREE.MathUtils.clamp(1.4 - _v1.distanceTo(player.pos) / 700, 0.15, 1));
+  hud.notice(`${remote.name} DESTROYED · RESPAWNING`, 'orange');
+});
+net.on('disconnected', (reason) => {
+  if (game.mp) {
+    game.mp = false;
+    remote.remove();
+    allyBolts.clear();
+    hud.setLink(null);
+    hud.banner('PILOT DISCONNECTED', `${reason} · FLYING SOLO`, 4500);
+  } else if (lobbyOpen()) {
+    setLobbyStatus(reason, 'error');
+    showLobbyChoice();
+  }
+  net.close(true);
+});
+net.on('error', (msg) => { if (lobbyOpen()) setLobbyStatus(msg, 'error'); });
+
+// Browsers pause hidden tabs. In multiplayer the shared world keeps moving, so
+// when this tab comes back we fast-forward our simulation to catch up.
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { hiddenAt = performance.now(); return; }
+  if (!hiddenAt) return;
+  const away = Math.min((performance.now() - hiddenAt) / 1000, 60);
+  hiddenAt = 0;
+  if (!game.mp || away < 0.25 || !(state === 'playing' || state === 'dead' || state === 'paused')) return;
+  keys.clear();
+  firing = false;
+  const step = 1 / 30;
+  for (let t = 0; t < away; t += step) tick(step, false);
+  clock.getDelta();   // discard the long frame we were away for
+});
+
+// --- lobby UI ---
+const lobbyEls = {
+  choose: document.getElementById('lobby-choose'),
+  wait: document.getElementById('lobby-wait'),
+  code: document.getElementById('lobby-code'),
+  status: document.getElementById('lobby-status'),
+  input: document.getElementById('join-code'),
+};
+function lobbyOpen() { return !document.getElementById('lobby').classList.contains('hidden'); }
+function setLobbyStatus(text, kind = '') {
+  lobbyEls.status.textContent = text;
+  lobbyEls.status.className = `lobby-status ${kind}`;
+}
+function showLobbyChoice() {
+  lobbyEls.choose.classList.remove('hidden');
+  lobbyEls.wait.classList.add('hidden');
+}
+function openLobby() {
+  setOverlay('lobby');
+  showLobbyChoice();
+  setLobbyStatus(net.available ? '' : 'The multiplayer library failed to load. Check your internet connection and reload.', net.available ? '' : 'error');
+}
+async function hostGame() {
+  if (!net.available) return;
+  lobbyEls.choose.classList.add('hidden');
+  lobbyEls.wait.classList.remove('hidden');
+  lobbyEls.code.textContent = '·····';
+  setLobbyStatus('Registering room', 'busy');
+  try {
+    const code = await net.host();
+    lobbyEls.code.textContent = code;
+    setLobbyStatus('Waiting for the other pilot', 'busy');
+  } catch (msg) {
+    setLobbyStatus(String(msg), 'error');
+    showLobbyChoice();
+  }
+}
+async function joinGame() {
+  if (!net.available) return;
+  const code = normalizeCode(lobbyEls.input.value);
+  if (code.length !== 5) { setLobbyStatus('Enter the 5-character room code from the host.', 'error'); return; }
+  setLobbyStatus(`Connecting to ${code}`, 'busy');
+  mp.helloReceived = false;
+  try {
+    await net.join(code);
+  } catch (msg) {
+    setLobbyStatus(String(msg), 'error');
+    net.close(true);
+  }
+}
+bind('btn-multi', openLobby);
+bind('btn-host', hostGame);
+bind('btn-join', joinGame);
+bind('btn-lobby-back', () => { net.close(true); setOverlay('menu'); });
+lobbyEls.input.addEventListener('input', () => {
+  const v = normalizeCode(lobbyEls.input.value);
+  if (lobbyEls.input.value !== v) lobbyEls.input.value = v;
+});
+lobbyEls.input.addEventListener('keydown', (e) => {
+  if (e.code === 'Enter') { audio.init(); joinGame(); }
+  if (e.code === 'Escape') { net.close(true); setOverlay('menu'); }
 });
 
 // ===========================================================================
@@ -1550,4 +1803,5 @@ window.__eh = {
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
+  net, remote, allyBolts, playerBolts, mp, respawnPlayer, hostGame, joinGame,
   game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };

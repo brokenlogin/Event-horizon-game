@@ -87,7 +87,7 @@ function addFlame(group, x, y, z, radius, color, list) {
 // ---------------------------------------------------------------------------
 // Player: twin-engine interceptor
 // ---------------------------------------------------------------------------
-export function buildPlayerShip() {
+export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff } = {}) {
   const group = new THREE.Group();
   const model = new THREE.Group();
   group.add(model);
@@ -95,9 +95,9 @@ export function buildPlayerShip() {
   const hull = new THREE.MeshStandardMaterial({ color: 0xd4dce8, metalness: 0.7, roughness: 0.3, envMapIntensity: 1.6 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x252c3a, metalness: 0.8, roughness: 0.4, envMapIntensity: 1.2 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x061624, metalness: 1, roughness: 0.05, emissive: 0x0b6a8a, emissiveIntensity: 0.9 });
-  const accent = new THREE.MeshBasicMaterial({ color: hdr(0x5ef2ff, 3.2) });
+  const accent = new THREE.MeshBasicMaterial({ color: hdr(accentColor, 3.2) });
   const accentWarm = new THREE.MeshBasicMaterial({ color: hdr(0xffa040, 2.5) });
-  const ringMat = new THREE.MeshBasicMaterial({ color: hdr(0x5ef2ff, 1.1) });
+  const ringMat = new THREE.MeshBasicMaterial({ color: hdr(accentColor, 1.1) });
 
   // fuselage
   const fus = new THREE.CylinderGeometry(0.12, 0.62, 4.2, 8);
@@ -169,7 +169,7 @@ export function buildPlayerShip() {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.035, 6, 18), ringMat);
     ring.position.set(s * 0.52, 0, 2.36);
     model.add(ring);
-    addFlame(model, s * 0.52, 0, 2.38, 0.26, 0x3fb8ff, flames);
+    addFlame(model, s * 0.52, 0, 2.38, 0.26, flameColor, flames);
   }
 
   // nav lights

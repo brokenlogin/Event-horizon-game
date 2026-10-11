@@ -12,6 +12,16 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
+## Multiplayer (2 pilots, preview)
+
+Both players open the game. One clicks **MULTIPLAYER → HOST A GAME** and reads out the 5-letter room code; the other clicks **MULTIPLAYER**, types the code and presses **JOIN**.
+
+- **No server of your own.** The connection is peer-to-peer WebRTC (via [PeerJS](https://peerjs.com)). PeerJS's free public matchmaking service handles only the few-second handshake; after that, game traffic goes directly between the two computers.
+- **Works on the same Wi-Fi and over the internet** for most home networks. Some strict networks (certain mobile hotspots, corporate or university Wi-Fi) block direct connections; the lobby will say so. Try another network.
+- **Low lag:** the other ship is predicted with the same orbital physics between updates (20 per second), so it stays smooth even at internet latencies.
+- **Free flight for now:** in multiplayer there are no waves yet, just both pilots, the station and each other's shots. Shots are visual only. You respawn 5 s after dying, and pausing doesn't stop the shared world.
+- **To play from another computer on your network** without setting it up there, start the host's server with `./serve.sh --lan` and open the address it prints. The game can also be published with GitHub Pages: in the repo's Settings → Pages, choose *Deploy from a branch* → `main` / root. Then anyone can play from the link.
+
 ## Controls
 
 | Input | Action |
@@ -66,6 +76,8 @@ To use a different port: `./serve.sh 8080`.
 - `src/station.js`: the orbital station and docking
 - `src/wrecks.js`: salvageable wrecks and scrap
 - `src/stationui.js`: upgrade definitions and the docked shop UI
+- `src/net.js`: peer-to-peer link (PeerJS / WebRTC), room codes, clock sync
+- `src/remote.js`: the other pilot: physics-based prediction and smoothing
 - `src/ships.js`: procedural ship models
 - `src/fx.js`: bolts, particles, trails, space dust
 - `src/hud.js`: HUD markers, bars and notices

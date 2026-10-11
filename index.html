@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
   <script type="importmap">
   {
     "imports": {
@@ -34,6 +35,8 @@
       <svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="8" /><line x1="14" y1="14" x2="26" y2="26"/><line x1="26" y1="14" x2="14" y2="26"/><line x1="20" y1="28" x2="20" y2="36"/><line x1="4" y1="20" x2="12" y2="20"/><line x1="28" y1="20" x2="36" y2="20"/></svg>
     </div>
     <div id="leadpip"></div>
+    <div id="ally-marker"><div class="am-box"></div><div class="am-label"></div></div>
+    <div id="ally-arrow" class="edge-arrow ally"></div>
     <div id="station-marker"><div class="sm-icon"></div><div class="sm-label"></div></div>
     <div id="station-arrow" class="edge-arrow station"></div>
     <div id="rel-pro" class="nav-marker rel" title="Velocity relative to station">
@@ -63,6 +66,7 @@
       <div class="sub-row"><span class="label">WAVE</span><span id="wave">1</span><span id="mult" class="mult"></span></div>
       <div class="sub-row"><span class="label">HOSTILES</span><span id="hostiles">0</span></div>
       <div class="sub-row"><span class="label">SCRAP</span><span id="scrap" class="scrap">0</span></div>
+      <div class="sub-row hidden" id="link-row"><span class="label">LINK</span><span id="link">—</span></div>
     </div>
 
     <div id="telemetry" class="panel">
@@ -125,6 +129,7 @@
       <h1 class="title">EVENT<span>HORIZON</span></h1>
       <div class="menu-buttons">
         <button id="btn-play" class="btn primary">LAUNCH</button>
+        <button id="btn-multi" class="btn">MULTIPLAYER</button>
         <button id="btn-controls" class="btn">FLIGHT MANUAL</button>
         <button id="btn-quality" class="btn small">GRAPHICS: HIGH</button>
       </div>
@@ -168,9 +173,32 @@
     </div>
   </div>
 
+  <div id="lobby" class="overlay hidden">
+    <div class="card center lobby">
+      <h2>MULTIPLAYER</h2>
+      <div class="lobby-sub">Two pilots · peer-to-peer · same Wi-Fi or over the internet</div>
+      <div id="lobby-choose" class="lobby-choose">
+        <button id="btn-host" class="btn primary">HOST A GAME</button>
+        <div class="lobby-or">OR JOIN WITH A CODE</div>
+        <div class="lobby-join">
+          <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button id="btn-join" class="btn">JOIN</button>
+        </div>
+      </div>
+      <div id="lobby-wait" class="lobby-wait hidden">
+        <div class="lobby-label">ROOM CODE</div>
+        <div id="lobby-code" class="lobby-code">-----</div>
+        <div class="lobby-hint">Send this code to the other pilot. The game starts as soon as they join.</div>
+      </div>
+      <div id="lobby-status" class="lobby-status"></div>
+      <button id="btn-lobby-back" class="btn small">BACK</button>
+    </div>
+  </div>
+
   <div id="pause" class="overlay hidden">
     <div class="card center">
       <h2>PAUSED</h2>
+      <div id="pause-note" class="lobby-hint hidden">Multiplayer: the game keeps running while you're paused.</div>
       <button id="btn-resume" class="btn primary">RESUME</button>
       <button id="btn-quit" class="btn">ABANDON MISSION</button>
     </div>

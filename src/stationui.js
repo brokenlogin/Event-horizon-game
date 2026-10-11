@@ -83,7 +83,10 @@ export class StationUI {
     }
     // live status line
     const w = $('st-wave');
-    if (v.waveActive) {
+    if (v.mp && !v.waveActive && v.waveTimer <= 0) {
+      w.textContent = 'MULTIPLAYER · FREE FLIGHT';
+      w.className = 'st-wave';
+    } else if (v.waveActive) {
       w.textContent = `⚠ WAVE IN PROGRESS · ${v.hostiles} HOSTILE${v.hostiles === 1 ? '' : 'S'}`;
       w.className = 'st-wave red';
     } else if (v.waveTimer > 0) {

@@ -19,6 +19,8 @@ export class HUD {
       popups: $('popups'), markers: $('markers'),
       lockring: $('lockring'), lockLabel: document.querySelector('#lockring .lr-label'), notice: $('notice'),
       mpWrap: document.querySelector('.missile-pips'), lockStatus: $('lock-status'),
+      allyMarker: $('ally-marker'), allyLabel: document.querySelector('#ally-marker .am-label'), allyArrow: $('ally-arrow'),
+      linkRow: $('link-row'), link: $('link'),
       scrap: $('scrap'), waveTimer: $('wave-timer'), stationMarker: $('station-marker'), stationLabel: document.querySelector('#station-marker .sm-label'),
       stationArrow: $('station-arrow'), relPro: $('rel-pro'), relRetro: $('rel-retro'), dockHint: $('dock-hint'),
       thF: $('th-f'), thL: $('th-l'), thR: $('th-r'), thU: $('th-u'), thD: $('th-d'),
@@ -224,6 +226,45 @@ export class HUD {
     el.style.display = 'block';
   }
 
+  /** Link quality readout; pass null to hide (single player). */
+  setLink(rttSec) {
+    const el = this.el;
+    if (rttSec === null) { el.linkRow.classList.add('hidden'); return; }
+    el.linkRow.classList.remove('hidden');
+    const ms = Math.round(rttSec * 1000);
+    const txt = rttSec > 0 ? `${ms} ms` : '…';
+    if (el.link.textContent !== txt) el.link.textContent = txt;
+    el.link.className = ms > 250 ? 'bad' : ms > 150 ? 'warn' : '';
+  }
+
+  /** Marker for the other pilot (on screen) or an edge arrow (off screen). */
+  updateAlly(remote, camera, playerPos) {
+    const el = this.el;
+    if (!remote || !remote.present || !remote.alive) {
+      el.allyMarker.style.display = el.allyArrow.style.display = 'none';
+      return;
+    }
+    const s = this.project(remote.renderPos, camera, this._ap || (this._ap = {}));
+    const dist = remote.renderPos.distanceTo(playerPos);
+    if (s.onScreen) {
+      el.allyMarker.style.display = 'block';
+      el.allyArrow.style.display = 'none';
+      el.allyMarker.style.left = `${s.x}px`;
+      el.allyMarker.style.top = `${s.y}px`;
+      const txt = `${remote.name}${remote.docked ? ' · DOCKED' : ''} · ${dist.toFixed(0)} m`;
+      if (el.allyLabel.textContent !== txt) el.allyLabel.textContent = txt;
+    } else {
+      el.allyMarker.style.display = 'none';
+      let x = s.ndcX, y = s.ndcY;
+      if (s.behind) { x = -x; y = -y; }
+      const ang = Math.atan2(y, x);
+      el.allyArrow.style.display = 'block';
+      el.allyArrow.style.left = `${innerWidth * 0.5 + Math.cos(ang) * (innerWidth * 0.5 - 50) - 9}px`;
+      el.allyArrow.style.top = `${innerHeight * 0.5 - Math.sin(ang) * (innerHeight * 0.5 - 50) - 9}px`;
+      el.allyArrow.style.transform = `rotate(${-ang + Math.PI / 2}rad)`;
+    }
+  }
+
   setScrap(n) {
     if (this._scrap !== n) { this._scrap = n; this.el.scrap.textContent = n; }
   }
@@ -330,7 +371,7 @@ export class HUD {
 
   hideMarkers() {
     if (this._wpool) for (const m of this._wpool) m.style.display = 'none';
-    for (const k of ['stationMarker', 'stationArrow', 'relPro', 'relRetro', 'dockHint', 'waveTimer']) this.el[k].style.display = 'none';
+    for (const k of ['stationMarker', 'stationArrow', 'relPro', 'relRetro', 'dockHint', 'waveTimer', 'allyMarker', 'allyArrow']) this.el[k].style.display = 'none';
     const ap = document.getElementById('autopilot'); if (ap) ap.style.display = 'none';
     for (const m of this.markerPool) m.style.display = 'none';
     for (const a of this.arrowPool) a.style.display = 'none';
