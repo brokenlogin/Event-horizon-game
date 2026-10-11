@@ -177,6 +177,9 @@
     <div class="card center lobby">
       <h2>MULTIPLAYER</h2>
       <div class="lobby-sub">Two pilots · peer-to-peer · same Wi-Fi or over the internet</div>
+      <label class="callsign-row"><span class="lobby-label">CALLSIGN</span>
+        <input id="callsign" maxlength="12" autocomplete="off" spellcheck="false" placeholder="YOUR NAME">
+      </label>
       <div id="lobby-choose" class="lobby-choose">
         <button id="btn-host" class="btn primary">HOST A GAME</button>
         <div class="lobby-or">OR JOIN WITH A CODE</div>
@@ -185,10 +188,12 @@
           <button id="btn-join" class="btn">JOIN</button>
         </div>
       </div>
-      <div id="lobby-wait" class="lobby-wait hidden">
+      <div id="lobby-room" class="lobby-room hidden">
         <div class="lobby-label">ROOM CODE</div>
         <div id="lobby-code" class="lobby-code">-----</div>
-        <div class="lobby-hint">Send this code to the other pilot. The game starts as soon as they join.</div>
+        <div class="lobby-label">PILOTS <span id="lobby-count">1 / 2</span></div>
+        <div id="lobby-players" class="lobby-players"></div>
+        <button id="btn-start" class="btn primary hidden" disabled>START</button>
       </div>
       <div id="lobby-status" class="lobby-status"></div>
       <button id="btn-lobby-back" class="btn small">BACK</button>

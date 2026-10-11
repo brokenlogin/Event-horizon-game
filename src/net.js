@@ -11,7 +11,7 @@
 // with NTP-style pings (median of recent samples), so netTime() is shared.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 const PREFIX = 'event-horizon-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O, 1/I
 const CODE_LEN = 5;
@@ -142,9 +142,25 @@ class Net {
         this._emit('connected');
       }
     });
-    conn.on('data', (msg) => this._recv(msg));
-    conn.on('close', () => this._drop('The other pilot left.'));
-    conn.on('error', () => this._drop('The link dropped.'));
+    conn.on('data', (msg) => { if (this._isCurrent(conn)) this._recv(msg); });
+    conn.on('close', () => { if (this._isCurrent(conn)) this._drop('The other pilot left.'); });
+    conn.on('error', () => { if (this._isCurrent(conn)) this._drop('The link dropped.'); });
+  }
+
+  _isCurrent(conn) {
+    // before 'open' the channel isn't registered yet; after a guest leaves its old channels are stale
+    return conn.peer === this.remoteId && (!this.chan.state || !this.chan.events || this.chan.state === conn || this.chan.events === conn);
+  }
+
+  /** Host only: forget the current guest but keep the room code open for someone else. */
+  dropGuest() {
+    for (const c of Object.values(this.chan)) { try { c && c.close(); } catch { /* ignore */ } }
+    this.chan = { state: null, events: null };
+    this.remoteId = null;
+    this.connected = false;
+    this.samples = [];
+    this.synced = false;
+    this.rtt = 0;
   }
 
   _drop(reason) {

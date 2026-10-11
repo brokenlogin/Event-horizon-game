@@ -14,12 +14,14 @@ To use a different port: `./serve.sh 8080`.
 
 ## Multiplayer (2 pilots, preview)
 
-Both players open the game. One clicks **MULTIPLAYER → HOST A GAME** and reads out the 5-letter room code; the other clicks **MULTIPLAYER**, types the code and presses **JOIN**.
+Both players open the game and click **MULTIPLAYER**. Set your **callsign** (it's remembered). One player clicks **HOST A GAME** and shares the 5-letter room code; the other types it and presses **JOIN**. Both wait in the room's pilot list until the host presses **START**.
 
 - **No server of your own.** The connection is peer-to-peer WebRTC (via [PeerJS](https://peerjs.com)). PeerJS's free public matchmaking service handles only the few-second handshake; after that, game traffic goes directly between the two computers.
 - **Works on the same Wi-Fi and over the internet** for most home networks. Some strict networks (certain mobile hotspots, corporate or university Wi-Fi) block direct connections; the lobby will say so. Try another network.
 - **Low lag:** the other ship is predicted with the same orbital physics between updates (20 per second), so it stays smooth even at internet latencies.
 - **Free flight for now:** in multiplayer there are no waves yet, just both pilots, the station and each other's shots. Shots are visual only. You respawn 5 s after dying, and pausing doesn't stop the shared world.
+- **Shared economy:** scrap goes into one pool and upgrades apply to both ships. The host's game keeps the books, and purchases from either pilot are announced on both screens. Repairs and rearming use the shared pool but only fix your own ship. (Scrap comes from wrecks, so multiplayer has no scrap source until enemies are synced.)
+- **Twin docking clamps:** the station has two clamps, so both pilots can dock at once: the host uses the left one, the guest the right. A clamp's light turns amber when it's occupied.
 - **To play from another computer on your network** without setting it up there, start the host's server with `./serve.sh --lan` and open the address it prints. The game can also be published with GitHub Pages: in the repo's Settings → Pages, choose *Deploy from a branch* → `main` / root. Then anyone can play from the link.
 
 ## Controls

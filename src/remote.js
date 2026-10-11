@@ -46,6 +46,7 @@ export class RemotePlayer {
     this.hasState = false;
     this.alive = false;
     this.docked = false;
+    this.clamp = 0;
     this.throttle = 0;
     this.hull = 100;
     this.shield = 100;
@@ -71,6 +72,7 @@ export class RemotePlayer {
     const wasAlive = this.alive;
     this.alive = !!s.al;
     this.docked = !!s.dk;
+    this.clamp = s.dc || 0;
 
     // bring the snapshot forward to the present with the real physics
     let dt = Math.min(Math.max(now - s.t, 0), MAX_EXTRAP);
@@ -85,8 +87,9 @@ export class RemotePlayer {
       this.err.set(0, 0, 0);
       this.quat.copy(this.targetQuat);
       this.hasState = true;
-    } else {
+    } else if (!this.docked) {
       // keep the drawn ship where it is, and let the offset decay
+      // (a docked ship is placed exactly at its clamp instead, see update())
       this.err.add(this.pos).sub(_p);
       this.lastCorrection = this.err.length();
       if (this.lastCorrection > SNAP_DISTANCE) this.err.set(0, 0, 0);
@@ -109,7 +112,7 @@ export class RemotePlayer {
 
     if (this.docked && station) {
       // sits in the station's docking port
-      station.toWorld(station.built.dockedShipLocal, this.pos);
+      station.toWorld(station.clampLocal(this.clamp), this.pos);
       this.vel.copy(station.vel);
       this.targetQuat.copy(station.quat).multiply(_flip);
     }

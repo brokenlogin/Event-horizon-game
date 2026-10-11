@@ -54,6 +54,8 @@ export class Station {
 
     // docking state for the player
     this.dockAnim = 0;
+    this.dockClamp = 0;
+    this.occupied = [false, false];   // which clamps hold a ship (for the status lights)
     this.captureLocal = new THREE.Vector3();
     this.captureQuat = new THREE.Quaternion();
   }
@@ -119,6 +121,8 @@ export class Station {
     for (const b of this.built.beacons) {
       b.visible = b.userData.strobe ? (time % 1.6) < 0.08 : (time % 1.2) < 0.6;
     }
+    // clamp status lights: green when free, amber when holding a ship
+    this.built.clamps.forEach((c, i) => c.light.material.color.setRGB(...(this.occupied[i] ? [3, 1.6, 0.3] : [0.4, 3, 1.2])));
     // chasing approach lights toward the port
     // station-keeping burn: exhaust on the hole-facing side
     this.toLocal(_v.set(0, 0, 0), _n);            // local position of the hole
@@ -155,19 +159,23 @@ export class Station {
       _v.subVectors(player.vel, this.vel).length() < DOCK_MAX_REL_SPEED;
   }
 
-  beginDock(player) {
+  /** Docked-ship position for clamp i, in station-local coordinates. */
+  clampLocal(i) { return this.built.clamps[i].dockedShipLocal; }
+
+  beginDock(player, clamp = 0) {
+    this.dockClamp = clamp;
     this.toLocal(player.pos, this.captureLocal);
     _qInv.copy(this.quat).invert();
     this.captureQuat.copy(_qInv).multiply(player.quat);
     this.dockAnim = 0;
-    this.dockDuration = DOCK_ANIM_BASE + this.captureLocal.distanceTo(this.built.dockedShipLocal) / 140;
+    this.dockDuration = DOCK_ANIM_BASE + this.captureLocal.distanceTo(this.clampLocal(clamp)) / 140;
   }
 
   /** Slaves the docked (or docking) player to the port. Returns true once fully docked. */
   holdPlayer(player, dt) {
     this.dockAnim = Math.min(1, this.dockAnim + dt / (this.dockDuration || DOCK_ANIM_BASE));
     const s = this.dockAnim * this.dockAnim * (3 - 2 * this.dockAnim);
-    _v.copy(this.captureLocal).lerp(this.built.dockedShipLocal, s);
+    _v.copy(this.captureLocal).lerp(this.clampLocal(this.dockClamp), s);
     this.toWorld(_v, player.pos);
     // docked attitude: nose into the port (ship -Z facing station +Z)
     _q.copy(this.captureQuat).slerp(_flip, s);
@@ -176,9 +184,9 @@ export class Station {
     return this.dockAnim >= 1;
   }
 
-  /** Place the player just outside the port, facing away, drifting clear. */
+  /** Place the player just outside their clamp, facing away, drifting clear. */
   releasePlayer(player) {
-    this.toWorld(_n.set(0, 0, -64), player.pos);
+    this.toWorld(this.built.clamps[this.dockClamp].exitLocal, player.pos);
     player.quat.copy(this.quat);
     const out = _v.set(0, 0, -1).applyQuaternion(this.quat);
     player.vel.copy(this.vel).addScaledVector(out, 12);

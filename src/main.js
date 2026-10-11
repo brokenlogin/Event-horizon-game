@@ -557,8 +557,7 @@ const wrecks = new WreckSystem(scene, particles);
 const dockAssist = new DockAssist(station, MAIN_THRUST);
 
 wrecks.onCollect = (w, by) => {
-  game.scrap += w.value;
-  game.scrapTotal += w.value;
+  addScrap(w.value);
   audio.pickup();
   hud.project(w.pos, camera, scr);
   const sub = by === 'missile' ? 'DRONE SALVAGE' : 'SALVAGED';
@@ -591,32 +590,28 @@ function applyUpgrades() {
 
 const stationUI = new StationUI({
   buy(id) {
-    const u = UPGRADES.find((x) => x.id === id);
-    const lvl = game.levels[id];
-    const cost = u.costs[lvl];
-    if (cost === undefined || game.scrap < cost) return;
-    game.scrap -= cost;
-    game.levels[id]++;
-    applyUpgrades();
-    if (id === 'hull') player.hull += 25;
-    if (id === 'missileCap') missiles.ammo++;
-    audio.purchase();
-    hud.notice(`${u.name} · LEVEL ${lvl + 1}`, 'green');
+    if (isGuest()) { net.sendEvent({ k: 'buy', id }); return; }   // the host decides
+    const u = buyUpgrade(id);
+    if (!u) return;
+    announcePurchase(u, game.mp ? 'YOU' : '');
+    if (game.mp) net.sendEvent({ k: 'bought', id: u.id, by: callsign });
   },
   repair() {
     const missing = player.maxHull - player.hull;
     if (missing < 1 || game.scrap < 1) return;
-    const cost = Math.ceil(missing / REPAIR_HP_PER_SCRAP);
-    if (game.scrap >= cost) { game.scrap -= cost; player.hull = player.maxHull; }
-    else { player.hull += game.scrap * REPAIR_HP_PER_SCRAP; game.scrap = 0; }
-    audio.purchase();
+    const cost = Math.min(Math.ceil(missing / REPAIR_HP_PER_SCRAP), game.scrap);
+    spendScrap(cost, () => {
+      player.hull = Math.min(player.maxHull, player.hull + cost * REPAIR_HP_PER_SCRAP);
+      audio.purchase();
+    });
   },
   rearm() {
     const need = missiles.capacity - missiles.ammo;
     if (need <= 0 || game.scrap < need * REARM_COST) return;
-    game.scrap -= need * REARM_COST;
-    missiles.ammo = missiles.capacity;
-    audio.purchase();
+    spendScrap(need * REARM_COST, () => {
+      missiles.ammo = missiles.capacity;
+      audio.purchase();
+    });
   },
   undock: () => undock(),
   callWave: () => callNextWave(),
@@ -642,7 +637,7 @@ function tryDock() {
   if (!station.canDock(player)) return;
   dockAssist.disengage();
   player.docking = true;
-  station.beginDock(player);
+  station.beginDock(player, myClamp());
   firing = false;
   missiles.cancelLock(true);
   audio.silenceEngine();
@@ -817,12 +812,15 @@ function startGame(opts = {}) {
     pendingYaw: 0, pendingPitch: 0, yawRate: 0, pitchRate: 0, throttle: 0,
   });
   // in multiplayer the client spawns ~250 m ahead of the host on the same orbit
-  setStartPose(Math.PI * 0.25 + (multiplayer && net.role === 'client' ? MP_SPAWN_GAP : 0));
+  // (in multiplayer, positions are taken from the shared clock so both start exactly 250 m apart)
+  const orbitRate = circularSpeed(START_RADIUS) / START_RADIUS;
+  const sinceEpoch = multiplayer ? Math.max(0, net.netTime() - mp.epoch) : 0;
+  setStartPose(Math.PI * 0.25 + (multiplayer && net.role === 'client' ? MP_SPAWN_GAP : 0) + orbitRate * sinceEpoch);
   station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // slow, thruster-held orbit
   if (multiplayer) syncStation();
   radar.setStationOrbit(station);
   remote.remove();
-  remote.name = net.role === 'client' ? 'PILOT 1' : 'PILOT 2';
+  remote.name = mp.remoteName || (net.role === 'client' ? 'HOST' : 'PILOT 2');
   shipParts.group.visible = true;
   shipParts.model.scale.set(1, 1, 1);
   for (const t of playerTrails) { t.mesh.visible = true; t.reset(player.pos); }
@@ -1339,6 +1337,7 @@ function frame() {
 function tick(rawDt, render) {
   visualTime += rawDt;
   net.update(rawDt);
+  if (state === 'menu' && net.role) renderRoom();
 
   if (state === 'playing' || state === 'dead' || (state === 'paused' && game.mp)) {
     const dt = rawDt * game.timeScale;
@@ -1369,6 +1368,9 @@ function tick(rawDt, render) {
 
     // station, docking, salvage
     if (game.mp) syncStation();
+    station.occupied[0] = station.occupied[1] = false;
+    if (player.alive && (player.docked || player.docking)) station.occupied[myClamp()] = true;
+    if (game.mp && remote.present && remote.alive && remote.docked) station.occupied[remote.clamp] = true;
     station.update(dt, visualTime);
     if (player.alive && (player.docked || player.docking)) {
       const done = station.holdPlayer(player, dt);
@@ -1573,7 +1575,7 @@ window.addEventListener('keydown', (e) => {
 // Multiplayer (peer-to-peer, see net.js / remote.js)
 // ===========================================================================
 const SNAPSHOT_INTERVAL = 1 / 20;
-const mp = { epoch: 0, helloReceived: false, sendTimer: 0, starting: false };
+const mp = { epoch: 0, sendTimer: 0, starting: false, guestReady: false, remoteName: '', pendingStart: false, reqId: 0, pending: new Map() };
 
 const round2 = (x) => Math.round(x * 100) / 100;
 function r2(v) { return [round2(v.x), round2(v.y), round2(v.z)]; }
@@ -1594,7 +1596,7 @@ function sendSnapshot(dt) {
     k: 's', t: net.netTime(),
     p: r2(player.pos), v: r2(player.vel), a: r2(player.thrustAcc),
     q: [q.x, q.y, q.z, q.w].map((x) => Math.round(x * 1e4) / 1e4),
-    th: round2(player.throttle), al: player.alive ? 1 : 0, dk: (player.docked || player.docking) ? 1 : 0,
+    th: round2(player.throttle), al: player.alive ? 1 : 0, dk: (player.docked || player.docking) ? 1 : 0, dc: myClamp(),
     hu: Math.round(player.hull), sh: Math.round(player.shield),
   });
 }
@@ -1621,52 +1623,168 @@ function respawnPlayer() {
   hud.banner('BACK IN THE FIGHT', `RESPAWNED NEAR ${remote.present ? remote.name : 'THE START ORBIT'}`, 2400);
 }
 
+/** Each pilot has their own docking clamp: host left, guest right. */
+function myClamp() { return game.mp && net.role === 'client' ? 1 : 0; }
+
+// ---------------------------------------------------------------------------
+// Callsigns
+// ---------------------------------------------------------------------------
+const CALLSIGNS = ['VIPER', 'NOVA', 'COMET', 'RAVEN', 'EMBER', 'DRIFT', 'HALO', 'QUASAR', 'ZENITH', 'ORBIT'];
+function cleanCallsign(raw) {
+  return String(raw || '').toUpperCase().replace(/[^A-Z0-9 _-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 12);
+}
+let callsign = cleanCallsign(store.get('eh_callsign', '')) ||
+  `${CALLSIGNS[Math.floor(Math.random() * CALLSIGNS.length)]}-${Math.floor(10 + Math.random() * 90)}`;
+store.set('eh_callsign', callsign);
+
+// ---------------------------------------------------------------------------
+// Session start / end
+// ---------------------------------------------------------------------------
 function startMultiplayer() {
   if (mp.starting) return;
   mp.starting = true;
-  setLobbyStatus('Linked — launching', 'busy');
+  mp.pendingStart = false;
+  setLobbyStatus('Launching', 'busy');
   const fade = document.getElementById('fade');
   fade.classList.add('on');
   setTimeout(() => {
     startGame({ multiplayer: true });
     fade.classList.remove('on');
     mp.starting = false;
+    if (net.role === 'host') econBroadcast();
   }, 450);
 }
 
-function maybeStartClient() {
-  if (net.role === 'client' && net.connected && net.synced && mp.helloReceived && !game.mp && state === 'menu') startMultiplayer();
+function hostStart() {
+  if (net.role !== 'host' || !net.connected || !mp.guestReady) return;
+  mp.epoch = net.netTime();
+  net.sendEvent({ k: 'start', epoch: mp.epoch });
+  startMultiplayer();
 }
 
 function leaveMultiplayer() {
   if (net.role) net.close(true);
   game.mp = false;
-  mp.helloReceived = false;
+  mp.guestReady = false;
+  mp.remoteName = '';
+  mp.pendingStart = false;
+  mp.pending.clear();
   remote.remove();
   allyBolts.clear();
   hud.setLink(null);
 }
 
+// ---------------------------------------------------------------------------
+// Shared economy. In multiplayer the host owns the scrap pool and the upgrade
+// levels; the guest asks for purchases / spending and gets the result back.
+// Upgrades apply to both ships.
+// ---------------------------------------------------------------------------
+const isGuest = () => game.mp && net.role === 'client';
+
+function econBroadcast() {
+  if (game.mp && net.role === 'host') net.sendEvent({ k: 'econ', scrap: game.scrap, levels: game.levels });
+}
+
+/** Adopt new upgrade levels; each pilot gets the one-off bonus for any new Hull Plating / Missile Rack level. */
+function applyLevels(levels) {
+  const dHull = levels.hull - game.levels.hull;
+  const dRacks = levels.missileCap - game.levels.missileCap;
+  game.levels = { ...levels };
+  applyUpgrades();
+  if (dHull > 0 && player.alive) player.hull = Math.min(player.maxHull, player.hull + 25 * dHull);
+  if (dRacks > 0) missiles.ammo = Math.min(missiles.capacity, missiles.ammo + dRacks);
+}
+
+/** Authoritative purchase (solo or host). Returns the upgrade bought, or null. */
+function buyUpgrade(id) {
+  const u = UPGRADES.find((x) => x.id === id);
+  if (!u) return null;
+  const lvl = game.levels[id];
+  const cost = u.costs[lvl];
+  if (cost === undefined || game.scrap < cost) return null;
+  game.scrap -= cost;
+  applyLevels({ ...game.levels, [id]: lvl + 1 });
+  econBroadcast();
+  return u;
+}
+
+function announcePurchase(u, who) {
+  audio.purchase();
+  const lvl = game.levels[u.id];
+  hud.notice(game.mp ? `${who} BOUGHT ${u.name} · LV ${lvl}` : `${u.name} · LEVEL ${lvl}`, 'green');
+}
+
+/** Spend shared scrap on a personal service (repair / rearm). onOk runs once it's approved. */
+function spendScrap(amount, onOk) {
+  if (amount <= 0) return;
+  if (isGuest()) {
+    if (game.scrap < amount) return;
+    const id = ++mp.reqId;
+    mp.pending.set(id, onOk);
+    net.sendEvent({ k: 'spend', id, amount });
+    return;
+  }
+  if (game.scrap < amount) return;
+  game.scrap -= amount;
+  econBroadcast();
+  onOk();
+}
+
+function addScrap(value) {
+  game.scrapTotal += value;
+  if (isGuest()) { net.sendEvent({ k: 'scrap', v: value }); return; }
+  game.scrap += value;
+  econBroadcast();
+}
+
+// ---------------------------------------------------------------------------
+// Network events
+// ---------------------------------------------------------------------------
 net.on('connected', () => {
   if (net.role === 'host') {
-    mp.epoch = net.netTime();
-    net.sendEvent({ k: 'hello', v: PROTOCOL, epoch: mp.epoch });
-    startMultiplayer();
+    net.sendEvent({ k: 'hello', v: PROTOCOL, name: callsign });
+    setLobbyStatus('Pilot connecting', 'busy');
   } else {
     setLobbyStatus('Linked — syncing clocks', 'busy');
   }
+  renderRoom();
 });
 net.on('hello', (h) => {
   if (h.v !== PROTOCOL) {
-    setLobbyStatus('The other pilot is running a different version of the game. Both of you need the latest copy.', 'error');
-    net.close(true);
+    setLobbyStatus('The other pilot is running a different version of the game. Both of you need the latest copy (hard-refresh with Cmd/Ctrl+Shift+R).', 'error');
+    if (net.role === 'host') net.dropGuest(); else net.close(true);
+    renderRoom();
     return;
   }
-  mp.epoch = h.epoch;
-  mp.helloReceived = true;
-  maybeStartClient();
+  mp.remoteName = cleanCallsign(h.name) || (net.role === 'host' ? 'PILOT 2' : 'HOST');
+  if (net.role === 'client') {
+    net.sendEvent({ k: 'hello', v: PROTOCOL, name: callsign });
+    showRoom();
+    setLobbyStatus(`Waiting for ${mp.remoteName} to launch`, 'busy');
+  } else {
+    mp.guestReady = true;
+    setLobbyStatus(`${mp.remoteName} is aboard — press START when you're ready`);
+    audio.beep(880, 0.08, 0.05, 'sine');
+  }
+  renderRoom();
 });
-net.on('synced', () => maybeStartClient());
+net.on('name', (m) => {
+  mp.remoteName = cleanCallsign(m.name) || mp.remoteName;
+  remote.name = mp.remoteName;
+  if (lobbyOpen()) {
+    if (net.role === 'host' && mp.guestReady) setLobbyStatus(`${mp.remoteName} is aboard — press START when you're ready`);
+    else if (net.role === 'client') setLobbyStatus(`Waiting for ${mp.remoteName} to launch`, 'busy');
+  }
+  renderRoom();
+});
+net.on('start', (m) => {
+  if (net.role !== 'client') return;
+  mp.epoch = m.epoch;
+  if (net.synced) startMultiplayer();
+  else { mp.pendingStart = true; setLobbyStatus('Syncing clocks', 'busy'); }
+});
+net.on('synced', () => { if (mp.pendingStart) startMultiplayer(); });
+
 net.on('s', (snap) => { if (game.mp) remote.applySnapshot(snap, net.netTime()); });
 net.on('f', (f) => {
   if (!game.mp) return;
@@ -1684,6 +1802,42 @@ net.on('d', (d) => {
   audio.explosion(1.4, THREE.MathUtils.clamp(1.4 - _v1.distanceTo(player.pos) / 700, 0.15, 1));
   hud.notice(`${remote.name} DESTROYED · RESPAWNING`, 'orange');
 });
+
+// economy (host is the authority)
+net.on('econ', (m) => {
+  if (!isGuest()) return;
+  game.scrap = m.scrap;
+  applyLevels(m.levels);
+});
+net.on('buy', (m) => {
+  if (!game.mp || net.role !== 'host') return;
+  const u = buyUpgrade(m.id);
+  if (u) { announcePurchase(u, mp.remoteName); net.sendEvent({ k: 'bought', id: u.id, by: mp.remoteName }); }
+  else net.sendEvent({ k: 'denied', why: 'NOT ENOUGH SHARED SCRAP' });
+});
+net.on('bought', (m) => {
+  const u = UPGRADES.find((x) => x.id === m.id);
+  if (u) announcePurchase(u, m.by === mp.remoteName ? mp.remoteName : 'YOU');
+});
+net.on('denied', (m) => hud.notice(m.why, 'red'));
+net.on('spend', (m) => {
+  if (!game.mp || net.role !== 'host') return;
+  const ok = m.amount > 0 && game.scrap >= m.amount;
+  if (ok) { game.scrap -= m.amount; econBroadcast(); }
+  net.sendEvent({ k: 'spendRes', id: m.id, ok });
+});
+net.on('spendRes', (m) => {
+  const cb = mp.pending.get(m.id);
+  mp.pending.delete(m.id);
+  if (m.ok && cb) cb();
+  else if (!m.ok) hud.notice('NOT ENOUGH SHARED SCRAP', 'red');
+});
+net.on('scrap', (m) => {
+  if (!game.mp || net.role !== 'host') return;
+  game.scrap += m.v;
+  econBroadcast();
+});
+
 net.on('disconnected', (reason) => {
   if (game.mp) {
     game.mp = false;
@@ -1691,11 +1845,21 @@ net.on('disconnected', (reason) => {
     allyBolts.clear();
     hud.setLink(null);
     hud.banner('PILOT DISCONNECTED', `${reason} · FLYING SOLO`, 4500);
+    net.close(true);
+  } else if (lobbyOpen() && net.role === 'host') {
+    // keep the room open for someone else
+    net.dropGuest();
+    mp.guestReady = false;
+    mp.remoteName = '';
+    setLobbyStatus(`${reason} Waiting for a pilot`, 'busy');
   } else if (lobbyOpen()) {
-    setLobbyStatus(reason, 'error');
+    net.close(true);
     showLobbyChoice();
+    setLobbyStatus(reason, 'error');
+  } else {
+    net.close(true);
   }
-  net.close(true);
+  renderRoom();
 });
 net.on('error', (msg) => { if (lobbyOpen()) setLobbyStatus(msg, 'error'); });
 
@@ -1715,14 +1879,23 @@ document.addEventListener('visibilitychange', () => {
   clock.getDelta();   // discard the long frame we were away for
 });
 
-// --- lobby UI ---
+// ---------------------------------------------------------------------------
+// Lobby / waiting room UI
+// ---------------------------------------------------------------------------
 const lobbyEls = {
   choose: document.getElementById('lobby-choose'),
-  wait: document.getElementById('lobby-wait'),
+  room: document.getElementById('lobby-room'),
   code: document.getElementById('lobby-code'),
+  players: document.getElementById('lobby-players'),
+  count: document.getElementById('lobby-count'),
+  start: document.getElementById('btn-start'),
+  back: document.getElementById('btn-lobby-back'),
   status: document.getElementById('lobby-status'),
   input: document.getElementById('join-code'),
+  callsign: document.getElementById('callsign'),
 };
+lobbyEls.callsign.value = callsign;
+
 function lobbyOpen() { return !document.getElementById('lobby').classList.contains('hidden'); }
 function setLobbyStatus(text, kind = '') {
   lobbyEls.status.textContent = text;
@@ -1730,8 +1903,41 @@ function setLobbyStatus(text, kind = '') {
 }
 function showLobbyChoice() {
   lobbyEls.choose.classList.remove('hidden');
-  lobbyEls.wait.classList.add('hidden');
+  lobbyEls.room.classList.add('hidden');
+  lobbyEls.back.textContent = 'BACK';
 }
+function showRoom() {
+  lobbyEls.choose.classList.add('hidden');
+  lobbyEls.room.classList.remove('hidden');
+  lobbyEls.back.textContent = 'LEAVE ROOM';
+  renderRoom();
+}
+
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let roomKey = '';
+function renderRoom() {
+  const host = net.role === 'host';
+  const guestHere = net.connected && !!mp.remoteName;
+  const ping = net.connected && net.rtt ? `${Math.round(net.rtt * 1000)} ms` : '';
+  const rows = [];
+  const row = (name, tags, you, ms) => `<div class="lp${you ? ' you' : ''}"><i></i><b>${esc(name)}</b><span class="lp-tag">${tags}</span><span class="lp-ping">${ms}</span></div>`;
+  if (host) {
+    rows.push(row(callsign, 'HOST · YOU', true, ''));
+    rows.push(guestHere ? row(mp.remoteName, 'READY', false, ping) : '<div class="lp empty">waiting for a pilot…</div>');
+  } else {
+    rows.push(row(mp.remoteName || 'HOST', 'HOST', false, ping));
+    rows.push(row(callsign, 'YOU', true, ''));
+  }
+  const key = rows.join('') + net.code + host + guestHere;
+  if (key === roomKey) return;
+  roomKey = key;
+  lobbyEls.players.innerHTML = rows.join('');
+  lobbyEls.code.textContent = net.code || '-----';
+  lobbyEls.count.textContent = `${guestHere || !host ? 2 : 1} / 2`;
+  lobbyEls.start.classList.toggle('hidden', !host);
+  lobbyEls.start.disabled = !(host && guestHere && mp.guestReady);
+}
+
 function openLobby() {
   setOverlay('lobby');
   showLobbyChoice();
@@ -1739,14 +1945,16 @@ function openLobby() {
 }
 async function hostGame() {
   if (!net.available) return;
-  lobbyEls.choose.classList.add('hidden');
-  lobbyEls.wait.classList.remove('hidden');
+  mp.guestReady = false;
+  mp.remoteName = '';
+  showRoom();
   lobbyEls.code.textContent = '·····';
-  setLobbyStatus('Registering room', 'busy');
+  setLobbyStatus('Opening a room', 'busy');
   try {
-    const code = await net.host();
-    lobbyEls.code.textContent = code;
-    setLobbyStatus('Waiting for the other pilot', 'busy');
+    await net.host();
+    roomKey = '';
+    renderRoom();
+    setLobbyStatus('Share the room code — waiting for a pilot', 'busy');
   } catch (msg) {
     setLobbyStatus(String(msg), 'error');
     showLobbyChoice();
@@ -1757,7 +1965,7 @@ async function joinGame() {
   const code = normalizeCode(lobbyEls.input.value);
   if (code.length !== 5) { setLobbyStatus('Enter the 5-character room code from the host.', 'error'); return; }
   setLobbyStatus(`Connecting to ${code}`, 'busy');
-  mp.helloReceived = false;
+  mp.remoteName = '';
   try {
     await net.join(code);
   } catch (msg) {
@@ -1765,18 +1973,42 @@ async function joinGame() {
     net.close(true);
   }
 }
+function leaveRoom() {
+  net.close(true);
+  mp.guestReady = false;
+  mp.remoteName = '';
+  roomKey = '';
+  if (lobbyEls.room.classList.contains('hidden')) setOverlay('menu');
+  else { showLobbyChoice(); setLobbyStatus(''); }
+}
+
 bind('btn-multi', openLobby);
 bind('btn-host', hostGame);
 bind('btn-join', joinGame);
-bind('btn-lobby-back', () => { net.close(true); setOverlay('menu'); });
+bind('btn-start', hostStart);
+bind('btn-lobby-back', leaveRoom);
 lobbyEls.input.addEventListener('input', () => {
   const v = normalizeCode(lobbyEls.input.value);
   if (lobbyEls.input.value !== v) lobbyEls.input.value = v;
 });
 lobbyEls.input.addEventListener('keydown', (e) => {
   if (e.code === 'Enter') { audio.init(); joinGame(); }
-  if (e.code === 'Escape') { net.close(true); setOverlay('menu'); }
+  if (e.code === 'Escape') leaveRoom();
 });
+lobbyEls.callsign.addEventListener('input', () => {
+  const v = cleanCallsign(lobbyEls.callsign.value.replace(/^\s+/, ''));
+  const keepSpace = /\s$/.test(lobbyEls.callsign.value) && v.length < 12;
+  if (lobbyEls.callsign.value !== v + (keepSpace ? ' ' : '')) lobbyEls.callsign.value = v + (keepSpace ? ' ' : '');
+});
+lobbyEls.callsign.addEventListener('change', () => {
+  callsign = cleanCallsign(lobbyEls.callsign.value) || callsign;
+  lobbyEls.callsign.value = callsign;
+  store.set('eh_callsign', callsign);
+  if (net.connected) net.sendEvent({ k: 'name', name: callsign });
+  roomKey = '';
+  renderRoom();
+});
+lobbyEls.callsign.addEventListener('keydown', (e) => { if (e.code === 'Enter') lobbyEls.callsign.blur(); });
 
 // ===========================================================================
 // Boot
@@ -1803,5 +2035,5 @@ window.__eh = {
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
-  net, remote, allyBolts, playerBolts, mp, respawnPlayer, hostGame, joinGame,
+  net, remote, allyBolts, playerBolts, mp, respawnPlayer, hostGame, joinGame, hostStart, addScrap,
   game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };

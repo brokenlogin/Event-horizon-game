@@ -332,3 +332,19 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 #ally-marker .am-box { width: 30px; height: 30px; margin: 0 auto; border: 2px solid currentColor; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); filter: drop-shadow(0 0 4px currentColor); }
 #ally-marker .am-label { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); font-family: var(--font-display); font-size: 10px; letter-spacing: 1.5px; white-space: nowrap; text-shadow: 0 0 6px rgba(0,0,0,0.9); }
 .edge-arrow.ally { color: #ffad4a; display: none; }
+
+/* waiting room */
+.callsign-row { display: flex; align-items: center; gap: 12px; pointer-events: auto; }
+#callsign { pointer-events: auto; width: 210px; font-family: var(--font-display); font-size: 15px; letter-spacing: 3px; text-transform: uppercase;
+  background: rgba(94, 242, 255, 0.06); border: 1px solid var(--cyan-faint); color: #fff; padding: 8px 10px; outline: none; user-select: text; -webkit-user-select: text; }
+#callsign:focus { border-color: var(--cyan); box-shadow: 0 0 14px rgba(94, 242, 255, 0.3); }
+.lobby-room { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+.lobby-players { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.lp { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid rgba(94, 242, 255, 0.18); background: rgba(94, 242, 255, 0.05); }
+.lp i { width: 8px; height: 8px; border-radius: 50%; background: #6dff9a; box-shadow: 0 0 8px #6dff9a; }
+.lp b { font-family: var(--font-display); font-size: 14px; letter-spacing: 2px; color: #fff; font-weight: 500; }
+.lp.you b { color: var(--cyan); }
+.lp-tag { font-family: var(--font-display); font-size: 9px; letter-spacing: 2px; color: rgba(217, 246, 255, 0.55); }
+.lp-ping { margin-left: auto; font-family: var(--font-display); font-size: 10px; color: rgba(217, 246, 255, 0.6); }
+.lp.empty { justify-content: center; color: rgba(217, 246, 255, 0.4); font-size: 14px; letter-spacing: 1px; border-style: dashed; animation: blink 1.6s steps(2) infinite; }
+#btn-start:disabled { opacity: 0.35; cursor: default; transform: none; box-shadow: none; background: rgba(94, 242, 255, 0.08); color: var(--cyan-dim); }
