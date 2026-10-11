@@ -35,8 +35,6 @@
       <svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="8" /><line x1="14" y1="14" x2="26" y2="26"/><line x1="26" y1="14" x2="14" y2="26"/><line x1="20" y1="28" x2="20" y2="36"/><line x1="4" y1="20" x2="12" y2="20"/><line x1="28" y1="20" x2="36" y2="20"/></svg>
     </div>
     <div id="leadpip"></div>
-    <div id="ally-marker"><div class="am-box"></div><div class="am-label"></div></div>
-    <div id="ally-arrow" class="edge-arrow ally"></div>
     <div id="station-marker"><div class="sm-icon"></div><div class="sm-label"></div></div>
     <div id="station-arrow" class="edge-arrow station"></div>
     <div id="rel-pro" class="nav-marker rel" title="Velocity relative to station">
@@ -161,7 +159,7 @@
         <p>Burn <b class="c">prograde</b> (toward the ⊕ marker) to raise the far side of your orbit. Burn <b class="o">retrograde</b> to drop toward the hole. Lower orbits move faster.</p>
         <p><b class="o">The hole is cover.</b> Nothing gets through it — not your bolts, not theirs, not a missile lock. Use it to break line of sight, or swing around it to catch a straggler on the far side. Stray too far out and a <b class="o">gravity wall</b> hauls you back in.</p>
         <p><b class="c">Salvage &amp; upgrades:</b> destroyed ships leave wrecks in orbit for 2 minutes. Fly within 75 m to salvage their scrap. Between waves you get 2 minutes — rendezvous with <b class="c">Kepler Station</b> (green marker). It holds a high, slow orbit. Get within 300 m while moving under 40 m/s relative to it and you dock automatically, or press <b class="c">B</b> and the docking assist will fly the rendezvous for you. Spare missiles double as <b class="c">salvage drones</b>: lock a wreck with E and fire, and the missile scoops up every wreck it flies through. Spend scrap on upgrades — but you can still be shot while docked.</p>
-        <p><b class="c">Multiplayer:</b> pick a callsign, host a room or join with its code, and the host starts the flight. Scrap and upgrades are shared between both pilots, and the station has a docking clamp for each of you.</p>
+        <p><b class="c">Multiplayer:</b> up to 4 pilots. Pick a callsign, host a room or join with its code, and the host starts the flight. Waves grow with the crew (+75% hostiles per extra pilot), enemies hunt whoever is closest, and scrap and upgrades are shared. The station has a docking clamp for each of you.</p>
         <p>The cyan line is your predicted path. If it turns <b class="r">red</b> and ends at the hole, burn prograde now.</p>
         <p><b class="o">Missiles:</b> press E with a hostile near your crosshair and hold it there until the lock completes, then press Q. They burn for 4 seconds, then fall ballistic and self-destruct — fire inside 1000 m.</p>
         <p>Kills made while you are within 750 m of the singularity score <b class="o">DANGER CLOSE ×2</b>. Chain kills to build your multiplier.</p>
@@ -177,7 +175,7 @@
   <div id="lobby" class="overlay hidden">
     <div class="card center lobby">
       <h2>MULTIPLAYER</h2>
-      <div class="lobby-sub">Two pilots · peer-to-peer · same Wi-Fi or over the internet</div>
+      <div class="lobby-sub">Up to 4 pilots · peer-to-peer · same Wi-Fi or over the internet</div>
       <label class="callsign-row"><span class="lobby-label">CALLSIGN</span>
         <input id="callsign" maxlength="12" autocomplete="off" spellcheck="false" placeholder="YOUR NAME">
       </label>

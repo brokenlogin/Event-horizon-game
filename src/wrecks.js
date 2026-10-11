@@ -26,6 +26,7 @@ export class WreckSystem {
     const built = buildWreck(GLOW[enemy.type] || 0xff6020);
     this.scene.add(built.group);
     const w = {
+      id: enemy.netId,          // shared with the enemy it came from, so all pilots agree on it
       type: enemy.type,
       value: SCRAP_VALUE[enemy.type] || 10,
       pos: enemy.pos.clone(),
@@ -95,6 +96,15 @@ export class WreckSystem {
     w.alive = false;
     this.scene.remove(w.built.group);
     w.built.group.traverse((o) => { if (o.material) o.material.dispose(); });
+  }
+
+  byId(id) { return this.list.find((w) => w.alive && w.id === id) || null; }
+
+  /** Remove without salvage effects (someone else picked it up). */
+  removeById(id) {
+    const w = this.byId(id);
+    if (w) { this._remove(w); this.list = this.list.filter((x) => x.alive); }
+    return w;
   }
 
   clear() {

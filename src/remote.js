@@ -145,4 +145,10 @@ export class RemotePlayer {
     this.reset();
     for (const t of this.trails) t.points.length = 0;
   }
+
+  /** Free the ship and trails for good. */
+  dispose() {
+    this.scene.remove(this.parts.group);
+    for (const t of this.trails) t.dispose();
+  }
 }

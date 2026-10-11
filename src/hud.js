@@ -19,7 +19,6 @@ export class HUD {
       popups: $('popups'), markers: $('markers'),
       lockring: $('lockring'), lockLabel: document.querySelector('#lockring .lr-label'), notice: $('notice'),
       mpWrap: document.querySelector('.missile-pips'), lockStatus: $('lock-status'),
-      allyMarker: $('ally-marker'), allyLabel: document.querySelector('#ally-marker .am-label'), allyArrow: $('ally-arrow'),
       linkRow: $('link-row'), link: $('link'),
       scrap: $('scrap'), waveTimer: $('wave-timer'), stationMarker: $('station-marker'), stationLabel: document.querySelector('#station-marker .sm-label'),
       stationArrow: $('station-arrow'), relPro: $('rel-pro'), relRetro: $('rel-retro'), dockHint: $('dock-hint'),
@@ -169,8 +168,9 @@ export class HUD {
     const s = this._mp || (this._mp = {});
     for (const e of enemies) {
       if (!e.alive) continue;
-      this.project(e.pos, camera, s);
-      const dist = e.pos.distanceTo(playerPos);
+      const ep = e.renderPos;
+      this.project(ep, camera, s);
+      const dist = ep.distanceTo(playerPos);
       if (s.onScreen) {
         let m = this.markerPool[mi];
         if (!m) {
@@ -237,32 +237,45 @@ export class HUD {
     el.link.className = ms > 250 ? 'bad' : ms > 150 ? 'warn' : '';
   }
 
-  /** Marker for the other pilot (on screen) or an edge arrow (off screen). */
-  updateAlly(remote, camera, playerPos) {
-    const el = this.el;
-    if (!remote || !remote.present || !remote.alive) {
-      el.allyMarker.style.display = el.allyArrow.style.display = 'none';
-      return;
+  /** Markers for the other pilots (on screen) or edge arrows (off screen). */
+  updateAllies(list, camera, playerPos) {
+    this._allyPool = this._allyPool || [];
+    const s = this._ap || (this._ap = {});
+    let i = 0;
+    for (const r of list) {
+      if (!r.present || !r.alive) continue;
+      let m = this._allyPool[i];
+      if (!m) {
+        m = { mark: document.createElement('div'), arrow: document.createElement('div') };
+        m.mark.className = 'ally-marker';
+        m.mark.innerHTML = '<div class="am-box"></div><div class="am-label"></div>';
+        m.label = m.mark.lastChild;
+        m.arrow.className = 'edge-arrow ally';
+        this.el.markers.append(m.mark, m.arrow);
+        this._allyPool.push(m);
+      }
+      i++;
+      this.project(r.renderPos, camera, s);
+      const dist = r.renderPos.distanceTo(playerPos);
+      if (s.onScreen) {
+        m.mark.style.display = 'block';
+        m.arrow.style.display = 'none';
+        m.mark.style.left = `${s.x}px`;
+        m.mark.style.top = `${s.y}px`;
+        const txt = `${r.name}${r.docked ? ' · DOCKED' : ''} · ${dist.toFixed(0)} m`;
+        if (m.label.textContent !== txt) m.label.textContent = txt;
+      } else {
+        m.mark.style.display = 'none';
+        let x = s.ndcX, y = s.ndcY;
+        if (s.behind) { x = -x; y = -y; }
+        const ang = Math.atan2(y, x);
+        m.arrow.style.display = 'block';
+        m.arrow.style.left = `${innerWidth * 0.5 + Math.cos(ang) * (innerWidth * 0.5 - 50) - 9}px`;
+        m.arrow.style.top = `${innerHeight * 0.5 - Math.sin(ang) * (innerHeight * 0.5 - 50) - 9}px`;
+        m.arrow.style.transform = `rotate(${-ang + Math.PI / 2}rad)`;
+      }
     }
-    const s = this.project(remote.renderPos, camera, this._ap || (this._ap = {}));
-    const dist = remote.renderPos.distanceTo(playerPos);
-    if (s.onScreen) {
-      el.allyMarker.style.display = 'block';
-      el.allyArrow.style.display = 'none';
-      el.allyMarker.style.left = `${s.x}px`;
-      el.allyMarker.style.top = `${s.y}px`;
-      const txt = `${remote.name}${remote.docked ? ' · DOCKED' : ''} · ${dist.toFixed(0)} m`;
-      if (el.allyLabel.textContent !== txt) el.allyLabel.textContent = txt;
-    } else {
-      el.allyMarker.style.display = 'none';
-      let x = s.ndcX, y = s.ndcY;
-      if (s.behind) { x = -x; y = -y; }
-      const ang = Math.atan2(y, x);
-      el.allyArrow.style.display = 'block';
-      el.allyArrow.style.left = `${innerWidth * 0.5 + Math.cos(ang) * (innerWidth * 0.5 - 50) - 9}px`;
-      el.allyArrow.style.top = `${innerHeight * 0.5 - Math.sin(ang) * (innerHeight * 0.5 - 50) - 9}px`;
-      el.allyArrow.style.transform = `rotate(${-ang + Math.PI / 2}rad)`;
-    }
+    for (let k = i; k < this._allyPool.length; k++) this._allyPool[k].mark.style.display = this._allyPool[k].arrow.style.display = 'none';
   }
 
   setScrap(n) {
@@ -371,7 +384,8 @@ export class HUD {
 
   hideMarkers() {
     if (this._wpool) for (const m of this._wpool) m.style.display = 'none';
-    for (const k of ['stationMarker', 'stationArrow', 'relPro', 'relRetro', 'dockHint', 'waveTimer', 'allyMarker', 'allyArrow']) this.el[k].style.display = 'none';
+    for (const k of ['stationMarker', 'stationArrow', 'relPro', 'relRetro', 'dockHint', 'waveTimer']) this.el[k].style.display = 'none';
+    if (this._allyPool) for (const m of this._allyPool) m.mark.style.display = m.arrow.style.display = 'none';
     const ap = document.getElementById('autopilot'); if (ap) ap.style.display = 'none';
     for (const m of this.markerPool) m.style.display = 'none';
     for (const a of this.arrowPool) a.style.display = 'none';

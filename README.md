@@ -12,16 +12,19 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
-## Multiplayer (2 pilots, preview)
+## Multiplayer (up to 4 pilots)
 
-Both players open the game and click **MULTIPLAYER**. Set your **callsign** (it's remembered). One player clicks **HOST A GAME** and shares the 5-letter room code; the other types it and presses **JOIN**. Both wait in the room's pilot list until the host presses **START**.
+Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's remembered). One player clicks **HOST A GAME** and shares the 5-letter room code; the others type it and press **JOIN**. Everyone waits in the room's pilot list until the host presses **START**. Once a flight has launched the room is closed to newcomers.
 
-- **No server of your own.** The connection is peer-to-peer WebRTC (via [PeerJS](https://peerjs.com)). PeerJS's free public matchmaking service handles only the few-second handshake; after that, game traffic goes directly between the two computers.
+- **No server of your own.** The connection is peer-to-peer WebRTC (via [PeerJS](https://peerjs.com)). PeerJS's free public matchmaking service handles only the handshake. After that, every guest talks directly to the host, which relays between guests.
 - **Works on the same Wi-Fi and over the internet** for most home networks. Some strict networks (certain mobile hotspots, corporate or university Wi-Fi) block direct connections; the lobby will say so. Try another network.
-- **Low lag:** the other ship is predicted with the same orbital physics between updates (20 per second), so it stays smooth even at internet latencies.
-- **Free flight for now:** in multiplayer there are no waves yet, just both pilots, the station and each other's shots. Shots are visual only. You respawn 5 s after dying, and pausing doesn't stop the shared world.
-- **Shared economy:** scrap goes into one pool and upgrades apply to both ships. The host's game keeps the books, and purchases from either pilot are announced on both screens. Repairs and rearming use the shared pool but only fix your own ship. (Scrap comes from wrecks, so multiplayer has no scrap source until enemies are synced.)
-- **Twin docking clamps:** the station has two clamps, so both pilots can dock at once: the host uses the left one, the guest the right. A clamp's light turns amber when it's occupied.
+- **Co-op waves that scale with the crew:** each extra pilot adds +75% hostiles (2 pilots 1.75×, 3 pilots 2.5×, 4 pilots 3.25×). The host's game runs the enemies and everyone sees the same ones. Each enemy hunts whichever pilot is closest.
+- **Fair hits:** each pilot's game decides whether enemy fire hits *their own* ship. Your hits on enemies go to the host, which applies the damage and credits the kill (and its score) to whoever made it.
+- **Shared economy:** wrecks appear for everyone and can be salvaged once. Scrap goes into one pool, and upgrades apply to every ship. Repairs and rearming use the shared pool but only fix your own ship.
+- **Four docking clamps:** each pilot has their own, and a clamp's light turns amber when it's occupied.
+- **Low lag:** ships and enemies are predicted with the same orbital physics between updates, so they stay smooth at internet latencies.
+- If a guest leaves, the flight carries on with the waves rescaled for who's left. If the host leaves, everyone else carries on solo.
+- You respawn 5 s after dying, and pausing doesn't stop the shared world.
 - **To play from another computer on your network** without setting it up there, start the host's server with `./serve.sh --lan` and open the address it prints. The game can also be published with GitHub Pages: in the repo's Settings → Pages, choose *Deploy from a branch* → `main` / root. Then anyone can play from the link.
 
 ## Controls

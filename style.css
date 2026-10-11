@@ -328,10 +328,10 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 #link.warn { color: var(--orange); }
 #link.bad { color: var(--red); }
 
-#ally-marker { position: absolute; display: none; transform: translate(-50%, -50%); pointer-events: none; color: #ffad4a; }
-#ally-marker .am-box { width: 30px; height: 30px; margin: 0 auto; border: 2px solid currentColor; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); filter: drop-shadow(0 0 4px currentColor); }
-#ally-marker .am-label { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); font-family: var(--font-display); font-size: 10px; letter-spacing: 1.5px; white-space: nowrap; text-shadow: 0 0 6px rgba(0,0,0,0.9); }
-.edge-arrow.ally { color: #ffad4a; display: none; }
+.ally-marker { position: absolute; display: none; transform: translate(-50%, -50%); pointer-events: none; color: #ffad4a; }
+.ally-marker .am-box { width: 30px; height: 30px; margin: 0 auto; border: 2px solid currentColor; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); filter: drop-shadow(0 0 4px currentColor); }
+.ally-marker .am-label { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); font-family: var(--font-display); font-size: 10px; letter-spacing: 1.5px; white-space: nowrap; text-shadow: 0 0 6px rgba(0,0,0,0.9); }
+.edge-arrow.ally { color: #ffad4a; }
 
 /* waiting room */
 .callsign-row { display: flex; align-items: center; gap: 12px; pointer-events: auto; }

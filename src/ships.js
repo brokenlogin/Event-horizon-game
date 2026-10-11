@@ -396,46 +396,49 @@ export function buildStation() {
   nose.position.z = -34;
   group.add(nose);
 
-  // --- twin docking clamps on a crossbeam, each with its own approach lights ---
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(34, 3.2, 4), dark);
-  beam.position.z = -39;
-  group.add(beam);
-  const beamStrip = new THREE.Mesh(new THREE.BoxGeometry(34.2, 0.3, 0.3), accentDim);
-  beamStrip.position.set(0, 1.7, -41);
-  group.add(beamStrip);
+  // --- four docking clamps on a cross-shaped mount, each with its own approach lights ---
+  for (const [w, h] of [[34, 3.2], [3.2, 34]]) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), dark);
+    beam.position.z = -39;
+    group.add(beam);
+    const beamStrip = new THREE.Mesh(new THREE.BoxGeometry(w > h ? w + 0.2 : 0.3, w > h ? 0.3 : h + 0.2, 0.3), accentDim);
+    beamStrip.position.set(w > h ? 0 : 1.7, w > h ? 1.7 : 0, -41);
+    group.add(beamStrip);
+  }
   const guides = [];
   const guideMat = new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0x5ef2ff, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
   const clampMat = new THREE.MeshBasicMaterial({ color: hdr(0x6dff9a, 3) });
   const clamps = [];
-  for (const x of [-12, 12]) {
+  for (const [x, y] of [[-12, 0], [12, 0], [0, 12], [0, -12]]) {
     const arm = zCyl(2.8, 3.6, 12, 12, dark);
-    arm.position.set(x, 0, -46);
+    arm.position.set(x, y, -46);
     group.add(arm);
     const collar = new THREE.Mesh(new THREE.TorusGeometry(3.8, 0.7, 10, 32), hull);
-    collar.position.set(x, 0, -52.3);
+    collar.position.set(x, y, -52.3);
     group.add(collar);
     const collarGlow = new THREE.Mesh(new THREE.TorusGeometry(3.8, 0.2, 8, 32), accent);
-    collarGlow.position.set(x, 0, -53.1);
+    collarGlow.position.set(x, y, -53.1);
     group.add(collarGlow);
     // four clamp jaws that close around a docked ship's nose
     for (let j = 0; j < 4; j++) {
       const a = (j / 4) * Math.PI * 2 + Math.PI / 4;
       const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 4.2), hull);
-      jaw.position.set(x + Math.cos(a) * 4.1, Math.sin(a) * 4.1, -54.6);
-      jaw.lookAt(x, 0, -60);
+      jaw.position.set(x + Math.cos(a) * 4.1, y + Math.sin(a) * 4.1, -54.6);
+      jaw.lookAt(x, y, -60);
       group.add(jaw);
       const tip = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 0.6), dark);
-      tip.position.set(x + Math.cos(a) * 3.3, Math.sin(a) * 3.3, -56.6);
+      tip.position.set(x + Math.cos(a) * 3.3, y + Math.sin(a) * 3.3, -56.6);
       group.add(tip);
     }
     // status light: green = free, amber = occupied
     const light = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), clampMat.clone());
-    light.position.set(x, 4.8, -52.3);
+    // sits just beside its collar (above the side clamps, beside the top/bottom ones)
+    light.position.set(x ? x : 4.8, x ? 4.8 : y, -52.3);
     group.add(light);
     for (let i = 0; i < 8; i++) {
       for (const [gx, gy] of [[5, 0], [-5, 0], [0, 5], [0, -5]]) {
         const sp = new THREE.Sprite(guideMat.clone());
-        sp.position.set(x + gx, gy, -60 - i * 9);
+        sp.position.set(x + gx, y + gy, -60 - i * 9);
         sp.scale.setScalar(1.4);
         sp.userData.i = i;
         group.add(sp);
@@ -444,9 +447,9 @@ export function buildStation() {
     }
     clamps.push({
       light,
-      portLocal: new THREE.Vector3(x, 0, -53.5),
-      dockedShipLocal: new THREE.Vector3(x, 0, -56.9),
-      exitLocal: new THREE.Vector3(x, 0, -68),
+      portLocal: new THREE.Vector3(x, y, -53.5),
+      dockedShipLocal: new THREE.Vector3(x, y, -56.9),
+      exitLocal: new THREE.Vector3(x, y, -68),
     });
   }
 

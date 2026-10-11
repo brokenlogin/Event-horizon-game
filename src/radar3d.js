@@ -147,7 +147,7 @@ export class Radar3D {
     this.renderer.setSize(w, h, false);
   }
 
-  update(player, enemies, wrecks, station, pred, viewQuat, time, ally = null) {
+  update(player, enemies, wrecks, station, pred, viewQuat, time, allies = []) {
     // camera turns with the player's view, raised ~32° so the disk plane reads as an ellipse
     this.camera.quaternion.copy(viewQuat).multiply(_tilt);
     this.camera.position.set(0, 0, 4.1).applyQuaternion(this.camera.quaternion);
@@ -188,9 +188,9 @@ export class Radar3D {
       addDrop(_v, col, 0.6 * bright);
     };
     const pulse = 0.85 + 0.2 * Math.sin(time * 6);
-    for (const e of enemies) if (e.alive) add(e.pos, COLORS[e.type] || COLORS.raider, pulse);
+    for (const e of enemies) if (e.alive) add(e.renderPos, COLORS[e.type] || COLORS.raider, pulse);
     for (const w of wrecks) if (w.alive) add(w.pos, COLORS.wreck, w.life < 15 ? 0.4 : 0.8);
-    if (ally && ally.present && ally.alive) add(ally.renderPos, COLORS.ally, 1.1);
+    for (const a of allies) if (a.present && a.alive) add(a.renderPos, COLORS.ally, 1.1);
     if (player.alive) addDrop(_v.copy(player.pos).multiplyScalar(K), new THREE.Color(0.6, 0.95, 1), 0.8);
     this.ptsGeo.setDrawRange(0, c);
     this.ptsGeo.attributes.position.needsUpdate = this.ptsGeo.attributes.color.needsUpdate = true;

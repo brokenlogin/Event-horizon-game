@@ -13,14 +13,14 @@ import {
 import { createBlackHole } from './blackhole.js';
 import { buildPlayerShip } from './ships.js';
 import { BoltPool, Particles, Trail, createDust } from './fx.js';
-import { Enemy } from './enemies.js';
+import { Enemy, resetEnemyIds } from './enemies.js';
 import { GameAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
 import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
 import { DockAssist } from './autopilot.js';
 import { Radar3D } from './radar3d.js';
-import { net, PROTOCOL, normalizeCode } from './net.js';
+import { net, PROTOCOL, MAX_PILOTS, normalizeCode } from './net.js';
 import { RemotePlayer } from './remote.js';
 import { WreckSystem, COLLECT_RANGE } from './wrecks.js';
 import { StationUI, UPGRADES, newUpgradeLevels, REPAIR_HP_PER_SCRAP, REARM_COST } from './stationui.js';
@@ -104,7 +104,21 @@ const particles = new Particles(scene, 9000);
 const playerBolts = new BoltPool(scene, { max: 400, color: 0x4af0ff, radius: 0.07, length: 4.5, glowRadius: 0.24 });
 const enemyBolts = new BoltPool(scene, { max: 500, color: 0xff3050, radius: 0.16, length: 3.5, glowRadius: 0.55 });
 const allyBolts = new BoltPool(scene, { max: 400, color: 0xffa040, radius: 0.07, length: 4.5, glowRadius: 0.24 });
-const remote = new RemotePlayer(scene);
+// other pilots in a multiplayer session, by pilot id (host 0, guests 1–3)
+const remotes = new Map();
+function remoteFor(id) {
+  let r = remotes.get(id);
+  if (!r) {
+    r = new RemotePlayer(scene);
+    r.name = pilotName(id);
+    remotes.set(id, r);
+  }
+  return r;
+}
+function clearRemotes() {
+  for (const r of remotes.values()) r.dispose();
+  remotes.clear();
+}
 const NO_TARGETS = [];
 
 // --- predicted orbit line ---
@@ -414,11 +428,19 @@ function updateEffects(dt) {
 // ===========================================================================
 // Spawning & waves
 // ===========================================================================
+/** More pilots, more hostiles: +0.75x per extra pilot (2 = 1.75x, 3 = 2.5x, 4 = 3.25x). */
+function pilotCount() {
+  if (!game.mp) return 1;
+  return net.isHost ? 1 + net.openLinks().length : Math.max(2, mp.players.size);
+}
+function enemyScale() { return 1 + 0.75 * (pilotCount() - 1); }
+
 function waveComposition(n) {
   const list = [];
-  const raiders = Math.min(2 + n, 9);
-  const seekers = n >= 2 ? Math.min(Math.floor(n / 1.5), 6) : 0;
-  const wardens = n >= 3 ? Math.min(Math.floor((n - 1) / 2), 4) : 0;
+  const k = enemyScale();
+  const raiders = Math.round(Math.min(2 + n, 9) * k);
+  const seekers = n >= 2 ? Math.round(Math.min(Math.floor(n / 1.5), 6) * k) : 0;
+  const wardens = n >= 3 ? Math.round(Math.min(Math.floor((n - 1) / 2), 4) * k) : 0;
   for (let i = 0; i < raiders; i++) list.push('raider');
   for (let i = 0; i < seekers; i++) list.push('seeker');
   for (let i = 0; i < wardens; i++) list.push('warden');
@@ -436,11 +458,15 @@ function startWave(n) {
   missiles.refill();
   hud.banner(`WAVE ${n}`, `${game.spawnQueue.length} HOSTILE SIGNATURES INBOUND${restocked ? ' · MISSILES REARMED' : ''}`, 2800);
   audio.waveStart();
+  if (game.mp) net.sendEvent({ k: 'waveStart', n, count: game.spawnQueue.length });
 }
 
 function spawnEnemy(type) {
   const e = new Enemy(type, scene, game.wave - 1);
   const pos = new THREE.Vector3(), vel = new THREE.Vector3();
+  // in multiplayer, place each newcomer relative to a random pilot
+  const pilots = alivePilots();
+  const ref = pilots.length ? pilots[Math.floor(Math.random() * pilots.length)].pos : player.pos;
   // about a third of the gunships spawn on the far side of the hole
   const farSide = type !== 'seeker' && Math.random() < 0.35;
   for (let tries = 0; tries < 40; tries++) {
@@ -449,8 +475,8 @@ function spawnEnemy(type) {
     // retrograde or steeply inclined orbit would make for blink-and-miss passes
     const normal = new THREE.Vector3(rand(-0.3, 0.3), 1, rand(-0.3, 0.3)).normalize();
     circularOrbitState(r, normal, rand(0, Math.PI * 2), pos, vel, rand(0.93, 1.07));
-    const d = pos.distanceTo(player.pos);
-    if (farSide ? d > 1600 && occludedByHole(pos, player.pos, 1.2) : d > 400 && d < 1100) break;
+    const d = pos.distanceTo(ref);
+    if (farSide ? d > 1600 && occludedByHole(pos, ref, 1.2) : d > 400 && d < 1100) break;
   }
   e.pos.copy(pos);
   e.vel.copy(vel);
@@ -459,7 +485,10 @@ function spawnEnemy(type) {
   e.mesh.scale.setScalar(0.01);
   e.trail.reset(pos);
   game.enemies.push(e);
-  // warp-in flash
+  warpInFx(pos, vel);
+}
+
+function warpInFx(pos, vel) {
   for (let i = 0; i < 40; i++) {
     randDir(_v3);
     const sp = rand(10, 40);
@@ -477,22 +506,40 @@ function enemyFire(e) {
   _up.set(0, 1, 0).applyQuaternion(e.quat);
   const muzzle = _v2.copy(e.pos).addScaledVector(fwd, e.radius * 0.9);
   const shots = def.spread || 1;
+  const sent = [];
   const accuracy = Math.max(0.01, 0.022 - e.difficulty * 0.0012);  // per-shot jitter (rad)
   for (let k = 0; k < shots; k++) {
     const off = shots > 1 ? (k - (shots - 1) / 2) * 0.06 : 0;
     const dir = _v3.copy(fwd).applyAxisAngle(_up, off);
     dir.x += rand(-accuracy, accuracy); dir.y += rand(-accuracy, accuracy); dir.z += rand(-accuracy, accuracy);
     dir.normalize();
-    enemyBolts.spawn(muzzle, _q1Vec.copy(e.vel).addScaledVector(dir, def.boltSpeed), 4.2, def.dmg);
+    _q1Vec.copy(e.vel).addScaledVector(dir, def.boltSpeed);
+    enemyBolts.spawn(muzzle, _q1Vec, 4.2, def.dmg);
+    if (game.mp) sent.push(...r2(_q1Vec));
   }
-  particles.emit(muzzle.x, muzzle.y, muzzle.z, e.vel.x, e.vel.y, e.vel.z, 2.5, 0.4, 0.5, 2.5, 0.5, 0.12, false);
-  const dist = e.pos.distanceTo(player.pos);
-  audio.enemyLaser(THREE.MathUtils.clamp(1.3 - dist / 500, 0, 1), e.type === 'warden');
+  enemyFireFx(muzzle, e.vel, e.type === 'warden');
+  // everyone simulates the same bolts; each pilot judges hits on their own ship
+  if (game.mp) net.sendEvent({ k: 'ef', t: net.netTime(), p: r2(muzzle), ev: r2(e.vel), v: sent, dmg: def.dmg, w: e.type === 'warden' ? 1 : 0 });
+}
+
+function enemyFireFx(muzzle, vel, heavy) {
+  particles.emit(muzzle.x, muzzle.y, muzzle.z, vel.x, vel.y, vel.z, 2.5, 0.4, 0.5, 2.5, 0.5, 0.12, false);
+  const dist = muzzle.distanceTo(player.pos);
+  audio.enemyLaser(THREE.MathUtils.clamp(1.3 - dist / 500, 0, 1), heavy);
 }
 const _q1Vec = new THREE.Vector3();
 
-function killEnemy(e, cause) {
+/**
+ * Destroy an enemy. `by` is the pilot credited (multiplayer); only that pilot's
+ * game scores it. The host decides kills and tells everyone; guests replay them.
+ */
+function killEnemy(e, cause, by = net.myId, fromHost = false) {
   if (!e.alive) return;
+  if (isGuest() && !fromHost) return;   // guests never decide kills themselves
+  if (game.mp && !isGuest()) {
+    net.sendEvent({ k: 'kill', id: e.netId, y: ENEMY_TYPES.indexOf(e.type), cause, by, p: r2(e.pos), v: r2(e.vel) });
+  }
+  if (isGuest()) mp.deadIds.add(e.netId);
   const scale = e.type === 'warden' ? 1.8 : e.type === 'seeker' ? 0.9 : 1.15;
   const tint = e.type === 'warden' ? [1.0, 0.35, 1.0] : e.type === 'seeker' ? [1.0, 0.7, 0.15] : [1.0, 0.42, 0.12];
   const dist = e.pos.distanceTo(player.pos);
@@ -504,7 +551,9 @@ function killEnemy(e, cause) {
 
   let pts = 0;
   let sub = '';
-  if (cause === 'player' || cause === 'ram' || cause === 'missile') {
+  if (by !== net.myId && game.mp) {
+    // someone else's kill: no score here
+  } else if (cause === 'player' || cause === 'ram' || cause === 'missile') {
     game.mult = game.comboTimer > 0 ? Math.min(game.mult + 1, 5) : 1;
     game.comboTimer = 5;
     const dangerClose = player.pos.length() < DANGER_CLOSE;
@@ -531,14 +580,23 @@ function killEnemy(e, cause) {
 // ===========================================================================
 // Player actions
 // ===========================================================================
-function hitEnemy(e, dmg, point, cause = 'player') {
+function hitEnemy(e, dmg, point, cause = 'player', by = net.myId) {
   if (!e.alive) return;
+  if (by === net.myId) {
+    e.flash = 1;
+    sparks(point, e.vel, 10, 0.5, 1.6, 2.2, 30);
+    audio.hitConfirm();
+  }
+  if (isGuest()) {
+    // the host owns enemy health: report the hit and let it decide
+    net.sendEvent({ k: 'hit', id: e.netId, dmg, cause });
+    hud.hitmarker(false);
+    return;
+  }
   e.hp -= dmg;
-  e.flash = 1;
-  sparks(point, e.vel, 10, 0.5, 1.6, 2.2, 30);
-  audio.hitConfirm();
-  if (e.hp <= 0) killEnemy(e, cause);
-  else hud.hitmarker(false);
+  if (by !== net.myId) e.flash = 1;
+  if (e.hp <= 0) killEnemy(e, cause, by);
+  else if (by === net.myId) hud.hitmarker(false);
 }
 
 const missiles = new MissileSystem({
@@ -557,7 +615,12 @@ const wrecks = new WreckSystem(scene, particles);
 const dockAssist = new DockAssist(station, MAIN_THRUST);
 
 wrecks.onCollect = (w, by) => {
-  addScrap(w.value);
+  // guests ask the host (it makes sure each wreck is only salvaged once); host/solo credit directly
+  if (isGuest()) net.sendEvent({ k: 'salvage', id: w.id });
+  else {
+    addScrap(w.value);
+    if (game.mp) net.sendEvent({ k: 'salvaged', id: w.id });
+  }
   audio.pickup();
   hud.project(w.pos, camera, scr);
   const sub = by === 'missile' ? 'DRONE SALVAGE' : 'SALVAGED';
@@ -594,7 +657,7 @@ const stationUI = new StationUI({
     const u = buyUpgrade(id);
     if (!u) return;
     announcePurchase(u, game.mp ? 'YOU' : '');
-    if (game.mp) net.sendEvent({ k: 'bought', id: u.id, by: callsign });
+    if (game.mp) net.sendEvent({ k: 'bought', id: u.id, by: net.myId });
   },
   repair() {
     const missing = player.maxHull - player.hull;
@@ -623,9 +686,11 @@ const stationUI = new StationUI({
 }), audio);
 
 function callNextWave() {
-  if (state !== 'playing' || game.waveActive || game.waveTimer <= 6) return;
+  if (!(state === 'playing' || game.mp) || game.waveActive || game.waveTimer <= 6) return;
+  if (isGuest()) { net.sendEvent({ k: 'callWave' }); hud.notice('ASKED THE HOST TO CALL THE NEXT WAVE', 'orange'); return; }
   game.waveTimer = 6;
   hud.notice('NEXT WAVE CALLED IN', 'orange');
+  if (game.mp) mp.waveSyncTimer = 0;   // tell everyone right away
 }
 
 function tryDock() {
@@ -798,8 +863,8 @@ function startGame(opts = {}) {
   const multiplayer = !!opts.multiplayer;
   Object.assign(game, {
     mp: multiplayer,
-    // multiplayer preview is free flight: no waves until enemy sync exists
-    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? -1 : 4, waveActive: false,
+    // in multiplayer the host runs the waves; guests follow its clock
+    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 8 : 4, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
     scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   });
@@ -811,23 +876,24 @@ function startGame(opts = {}) {
     alive: true, hull: BASE_HULL, shield: SHIELD_MAX, needsClearance: false, heat: 0, overheated: false, shieldDelay: 0, fireCd: 0, gun: 0,
     pendingYaw: 0, pendingPitch: 0, yawRate: 0, pitchRate: 0, throttle: 0,
   });
-  // in multiplayer the client spawns ~250 m ahead of the host on the same orbit
-  // (in multiplayer, positions are taken from the shared clock so both start exactly 250 m apart)
+  // in multiplayer the pilots line up 250 m apart on the same orbit, positioned
+  // from the shared clock so everyone agrees exactly where everyone starts
   const orbitRate = circularSpeed(START_RADIUS) / START_RADIUS;
   const sinceEpoch = multiplayer ? Math.max(0, net.netTime() - mp.epoch) : 0;
-  setStartPose(Math.PI * 0.25 + (multiplayer && net.role === 'client' ? MP_SPAWN_GAP : 0) + orbitRate * sinceEpoch);
+  setStartPose(Math.PI * 0.25 + (multiplayer ? net.myId * MP_SPAWN_GAP : 0) + orbitRate * sinceEpoch);
+  resetEnemyIds();
+  mp.deadIds.clear();
   station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // slow, thruster-held orbit
   if (multiplayer) syncStation();
   radar.setStationOrbit(station);
-  remote.remove();
-  remote.name = mp.remoteName || (net.role === 'client' ? 'HOST' : 'PILOT 2');
+  clearRemotes();
   shipParts.group.visible = true;
   shipParts.model.scale.set(1, 1, 1);
   for (const t of playerTrails) { t.mesh.visible = true; t.reset(player.pos); }
   orbitLine.visible = true;
   hud.show(true);
   hud.clearPopups();
-  if (multiplayer) hud.banner('LINK ESTABLISHED', `FREE FLIGHT WITH ${remote.name} · CLICK TO TAKE THE CONTROLS`, 3500);
+  if (multiplayer) hud.banner('LINK ESTABLISHED', `${pilotCount()} PILOTS · HOSTILES SCALED ×${enemyScale().toFixed(2)} · CLICK TO TAKE THE CONTROLS`, 3500);
   else hud.banner('ORBIT ESTABLISHED', 'HOSTILES APPROACHING · STAND BY', 2400);
   state = 'playing';
   setOverlay(null);
@@ -1077,7 +1143,7 @@ const playerTarget = { pos: player.pos, radius: player.radius, alive: true };
 function physicsStep(h) {
   station.physics(h);
   if (game.mp) {
-    remote.physics(h);
+    for (const r of remotes.values()) r.physics(h);
     allyBolts.step(h, NO_TARGETS, null);
   }
   wrecks.physics(h);
@@ -1105,21 +1171,25 @@ function physicsStep(h) {
   });
 
   // collisions & hazards for enemies
+  const guest = isGuest();
   for (const e of game.enemies) {
-    if (!e.alive) continue;
+    if (!e.alive || e.rammed) continue;
     const r = e.pos.length();
-    if (r < RS * 1.05) { killEnemy(e, 'horizon'); continue; }
-    if (r > ARENA_RADIUS * 2.5) { killEnemy(e, 'void'); continue; }
+    if (!guest) {
+      if (r < RS * 1.05) { killEnemy(e, 'horizon'); continue; }
+      if (r > ARENA_RADIUS * 2.5) { killEnemy(e, 'void'); continue; }
+    }
     if (!player.alive) continue;
     const d = e.pos.distanceTo(player.pos);
-    if (e.type === 'seeker' && d < player.radius + e.radius + 2.5) {
-      damagePlayer(e.def.ramDamage, { cause: 'SEEKER IMPACT' });
-      killEnemy(e, 'none');
-      game.trauma = 1;
-    } else if (d < player.radius + e.radius * 0.8) {
-      damagePlayer(30, { cause: 'COLLISION' });
-      killEnemy(e, 'ram');
-    }
+    const seekerHit = e.type === 'seeker' && d < player.radius + e.radius + 2.5;
+    const bump = d < player.radius + e.radius * 0.8;
+    if (!seekerHit && !bump) continue;
+    // each pilot judges collisions with their own ship; the host decides the enemy's fate
+    if (seekerHit) { damagePlayer(e.def.ramDamage, { cause: 'SEEKER IMPACT' }); game.trauma = 1; }
+    else damagePlayer(30, { cause: 'COLLISION' });
+    const cause = seekerHit ? 'none' : 'ram';
+    if (guest) { e.rammed = true; net.sendEvent({ k: 'ram', id: e.netId, cause }); }
+    else killEnemy(e, cause);
   }
 
   if (player.alive && player.pos.length() < RS * 1.02) {
@@ -1354,7 +1424,8 @@ function tick(rawDt, render) {
       }
       if (player.alive) updateShields(dt);
     }
-    for (const e of game.enemies) if (e.alive) e.think(dt, player, game);
+    // enemy AI runs only on the host (or solo); each enemy hunts the nearest pilot
+    if (!isGuest()) for (const e of game.enemies) if (e.alive) e.think(dt, nearestPilot(e.pos), game);
 
     accumulator += dt;
     let steps = 0;
@@ -1368,9 +1439,9 @@ function tick(rawDt, render) {
 
     // station, docking, salvage
     if (game.mp) syncStation();
-    station.occupied[0] = station.occupied[1] = false;
+    station.occupied.fill(false);
     if (player.alive && (player.docked || player.docking)) station.occupied[myClamp()] = true;
-    if (game.mp && remote.present && remote.alive && remote.docked) station.occupied[remote.clamp] = true;
+    if (game.mp) for (const r of remotes.values()) if (r.present && r.alive && r.docked) station.occupied[r.clamp] = true;
     station.update(dt, visualTime);
     if (player.alive && (player.docked || player.docking)) {
       const done = station.holdPlayer(player, dt);
@@ -1380,8 +1451,9 @@ function tick(rawDt, render) {
     game.underAttack = Math.max(0, game.underAttack - dt);
     wrecks.update(dt, visualTime, player, player.alive && !player.docked && !player.docking);
 
-    // waves
-    if (state === 'playing') {
+    // waves (the host runs them in multiplayer, even while its own pilot is dead or paused;
+    // guests count the same timer down locally between the host's updates)
+    if (state === 'playing' || game.mp) {
       if (game.waveTimer > 0) {
         const prev = game.waveTimer;
         game.waveTimer -= dt;
@@ -1394,9 +1466,11 @@ function tick(rawDt, render) {
           }
           if (game.waveTimer <= 5 && Math.ceil(prev) !== Math.ceil(game.waveTimer) && game.waveTimer > 0) audio.beep(1200, 0.08, 0.06, 'square');
         }
-        if (game.waveTimer <= 0) startWave(game.wave + 1);
+        if (game.waveTimer <= 0 && !isGuest()) startWave(game.wave + 1);
       }
-      if (game.spawnQueue.length) {
+      if (isGuest()) {
+        // nothing to spawn here: the host's enemies arrive as snapshots
+      } else if (game.spawnQueue.length) {
         game.spawnTimer -= dt;
         if (game.spawnTimer <= 0) {
           spawnEnemy(game.spawnQueue.shift());
@@ -1405,11 +1479,8 @@ function tick(rawDt, render) {
       } else if (game.waveActive && game.enemies.length === 0) {
         game.waveActive = false;
         game.waveTimer = INTERMISSION;
-        player.hull = Math.min(player.maxHull, player.hull + 15);
-        player.shield = SHIELD_MAX;
-        hud.banner('WAVE CLEARED', `+${game.wave * 250} BONUS · 2:00 TO SALVAGE AND UPGRADE`, 3500);
-        game.score += game.wave * 250;
-        audio.waveClear();
+        waveClearedFx(game.wave);
+        if (game.mp) net.sendEvent({ k: 'waveClear', n: game.wave });
       }
       game.comboTimer -= dt;
       if (game.comboTimer <= 0) game.mult = 1;
@@ -1427,9 +1498,11 @@ function tick(rawDt, render) {
     playerBolts.updateVisuals(player.vel);
     enemyBolts.updateVisuals(player.vel);
     if (game.mp) {
-      remote.update(dt, camera.position, visualTime, station);
+      for (const r of remotes.values()) r.update(dt, camera.position, visualTime, station);
       allyBolts.updateVisuals(player.vel);
       sendSnapshot(rawDt);
+      if (isGuest()) pruneProxies();
+      else sendWorld(rawDt);
     }
 
     // HUD
@@ -1460,7 +1533,7 @@ function tick(rawDt, render) {
         dockRange: DOCK_RANGE, dockSpeed: DOCK_MAX_REL_SPEED, needsClearance: player.needsClearance, assist: dockAssist.active,
       });
       hud.updateWrecks(wrecks.list, camera, player.pos, COLLECT_RANGE);
-      hud.updateAlly(game.mp ? remote : null, camera, player.pos);
+      hud.updateAllies(game.mp ? remotes.values() : NO_TARGETS, camera, player.pos);
       hud.setLink(game.mp ? net.rtt : null);
       hud.setAutopilot(dockAssist.active ? {
         mode: dockAssist.mode, dist: station.pos.distanceTo(player.pos), rel: station.relativeSpeed(player),
@@ -1472,7 +1545,7 @@ function tick(rawDt, render) {
       else updateNavMarkers();
       hud.setMissiles(missiles.ammo, missiles.capacity, missiles.lockInfo, camera);
       hud.updateMarkers(game.enemies, camera, player.pos, lockInfo.enemy);
-      radar.update(player, game.enemies, wrecks.list, station, pred, camera.quaternion, visualTime, game.mp ? remote : null);
+      radar.update(player, game.enemies, wrecks.list, station, pred, camera.quaternion, visualTime, game.mp ? remotes.values() : NO_TARGETS);
     }
 
     // post fx
@@ -1572,18 +1645,55 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ===========================================================================
-// Multiplayer (peer-to-peer, see net.js / remote.js)
+// Multiplayer (peer-to-peer, up to 4 pilots — see net.js / remote.js)
+//
+// The host's game is the referee: it runs the waves, the enemy AI and the
+// shared scrap pool. Guests show the host's enemies as "proxies" (dead-reckoned
+// between snapshots), judge enemy fire against their own ships, and report
+// their hits, rams and salvage to the host, which decides and tells everyone.
 // ===========================================================================
 const SNAPSHOT_INTERVAL = 1 / 20;
-const mp = { epoch: 0, sendTimer: 0, starting: false, guestReady: false, remoteName: '', pendingStart: false, reqId: 0, pending: new Map() };
+const WORLD_INTERVAL = 1 / 10;
+const ENEMY_TYPES = ['raider', 'warden', 'seeker'];
+const mp = {
+  epoch: 0, sendTimer: 0, worldTimer: 0, waveSyncTimer: 0, starting: false, pendingStart: false,
+  players: new Map(),      // pilot id -> { name, ready }
+  reqId: 0, pending: new Map(), deadIds: new Set(),
+};
 
 const round2 = (x) => Math.round(x * 100) / 100;
 function r2(v) { return [round2(v.x), round2(v.y), round2(v.z)]; }
 
-/** The station's orbit is analytic, so both players derive its phase from the shared clock. */
+/** The station's orbit is analytic, so every pilot derives its phase from the shared clock. */
 function syncStation() {
   station.phase = STATION_PHASE0 + station.omega * (net.netTime() - mp.epoch);
   station.stateAt(0, station.pos, station.vel);
+}
+
+/** Each pilot has their own docking clamp (the station has four). */
+function myClamp() { return game.mp ? net.myId : 0; }
+
+function pilotName(id) {
+  if (id === net.myId) return callsign;
+  const p = mp.players.get(id);
+  return (p && p.name) || (id === 0 ? 'HOST' : `PILOT ${id + 1}`);
+}
+
+/** Every living pilot (this ship + the others), for enemy targeting and spawning. */
+function alivePilots() {
+  const list = [];
+  if (player.alive) list.push(player);
+  if (game.mp) for (const r of remotes.values()) if (r.present && r.alive) list.push(r);
+  return list;
+}
+
+function nearestPilot(pos) {
+  let best = player, bd = Infinity;
+  for (const p of alivePilots()) {
+    const d = p.pos.distanceToSquared(pos);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
 }
 
 function sendSnapshot(dt) {
@@ -1601,12 +1711,69 @@ function sendSnapshot(dt) {
   });
 }
 
-/** Multiplayer death: come back after a few seconds, near the other pilot if they're around. */
+/** Host: enemy snapshots (10/s) and the wave clock (2/s). */
+function sendWorld(dt) {
+  if (!net.connected) return;
+  mp.worldTimer -= dt;
+  if (mp.worldTimer <= 0) {
+    mp.worldTimer = WORLD_INTERVAL;
+    const list = [];
+    for (const e of game.enemies) {
+      if (!e.alive) continue;
+      const q = e.quat;
+      list.push([e.netId, ENEMY_TYPES.indexOf(e.type), ...r2(e.pos), ...r2(e.vel), ...r2(e.thrust),
+        round2(q.x), round2(q.y), round2(q.z), round2(q.w), Math.round(e.hp * 100) / 100, round2(e.throttle)]);
+    }
+    net.sendState({ k: 'es', t: net.netTime(), e: list });
+  }
+  mp.waveSyncTimer -= dt;
+  if (mp.waveSyncTimer <= 0) {
+    mp.waveSyncTimer = 0.5;
+    net.sendEvent({ k: 'ws', wave: game.wave, timer: round2(game.waveTimer), active: game.waveActive ? 1 : 0 });
+  }
+}
+
+/** Guest: create / update proxies from the host's enemy snapshot. */
+const _snap = { t: 0, p: [0, 0, 0], v: [0, 0, 0], a: [0, 0, 0], q: [0, 0, 0, 1], hp: 0, th: 0 };
+function applyEnemySnapshot(msg) {
+  const now = net.netTime();
+  for (const row of msg.e) {
+    const id = row[0];
+    if (mp.deadIds.has(id)) continue;
+    _snap.t = msg.t;
+    _snap.p[0] = row[2]; _snap.p[1] = row[3]; _snap.p[2] = row[4];
+    _snap.v[0] = row[5]; _snap.v[1] = row[6]; _snap.v[2] = row[7];
+    _snap.a[0] = row[8]; _snap.a[1] = row[9]; _snap.a[2] = row[10];
+    _snap.q[0] = row[11]; _snap.q[1] = row[12]; _snap.q[2] = row[13]; _snap.q[3] = row[14];
+    _snap.hp = row[15]; _snap.th = row[16];
+    let e = game.enemies.find((x) => x.netId === id);
+    if (!e) {
+      e = new Enemy(ENEMY_TYPES[row[1]] || 'raider', scene, Math.max(0, game.wave - 1), id);
+      e.proxy = true;
+      e.applyNet(_snap, now);
+      e.mesh.position.copy(e.pos);
+      e.mesh.scale.setScalar(0.01);
+      e.trail.reset(e.pos);
+      game.enemies.push(e);
+      warpInFx(e.pos, e.vel);
+    } else {
+      e.applyNet(_snap, now);
+    }
+  }
+}
+
+/** Guest: drop proxies the host has stopped mentioning (missed kill message etc.). */
+function pruneProxies() {
+  const now = net.netTime();
+  for (const e of game.enemies) if (e.alive && e.proxy && now - e.lastSeen > 2.5) e.destroy();
+}
+
+/** Multiplayer death: come back after a few seconds, near another pilot if anyone's alive. */
 function respawnPlayer() {
   let phase = Math.PI * 0.25;
-  if (remote.present && remote.alive) {
-    phase = Math.atan2(remote.pos.dot(station.w), remote.pos.dot(station.u)) - MP_SPAWN_GAP;
-  }
+  let near = null;
+  for (const r of remotes.values()) if (r.present && r.alive) { near = r; break; }
+  if (near) phase = Math.atan2(near.pos.dot(station.w), near.pos.dot(station.u)) - MP_SPAWN_GAP;
   setStartPose(phase);
   Object.assign(player, {
     alive: true, hull: player.maxHull, shield: SHIELD_MAX, heat: 0, overheated: false, shieldDelay: 0,
@@ -1620,11 +1787,17 @@ function respawnPlayer() {
   shipParts.model.scale.set(1, 1, 1);
   for (const t of playerTrails) t.reset(player.pos);
   state = 'playing';
-  hud.banner('BACK IN THE FIGHT', `RESPAWNED NEAR ${remote.present ? remote.name : 'THE START ORBIT'}`, 2400);
+  hud.banner('BACK IN THE FIGHT', `RESPAWNED NEAR ${near ? near.name : 'THE START ORBIT'}`, 2400);
 }
 
-/** Each pilot has their own docking clamp: host left, guest right. */
-function myClamp() { return game.mp && net.role === 'client' ? 1 : 0; }
+/** Wave cleared: everyone gets the bonus, a patch-up and full shields. */
+function waveClearedFx(n) {
+  player.hull = Math.min(player.maxHull, player.hull + 15);
+  player.shield = SHIELD_MAX;
+  hud.banner('WAVE CLEARED', `+${n * 250} BONUS · 2:00 TO SALVAGE AND UPGRADE`, 3500);
+  game.score += n * 250;
+  audio.waveClear();
+}
 
 // ---------------------------------------------------------------------------
 // Callsigns
@@ -1649,40 +1822,50 @@ function startMultiplayer() {
   fade.classList.add('on');
   setTimeout(() => {
     startGame({ multiplayer: true });
+    for (const [id, p] of mp.players) if (id !== net.myId) remoteFor(id).name = p.name;
     fade.classList.remove('on');
     mp.starting = false;
-    if (net.role === 'host') econBroadcast();
+    if (net.isHost) econBroadcast();
   }, 450);
 }
 
+function readyGuests() { return [...mp.players.entries()].filter(([id, p]) => id !== 0 && p.ready).length; }
+
 function hostStart() {
-  if (net.role !== 'host' || !net.connected || !mp.guestReady) return;
+  if (!net.isHost || readyGuests() === 0) return;
+  net.lockRoom();
   mp.epoch = net.netTime();
   net.sendEvent({ k: 'start', epoch: mp.epoch });
   startMultiplayer();
 }
 
+function broadcastRoster() {
+  if (!net.isHost) return;
+  mp.players.set(0, { name: callsign, ready: true });
+  net.sendEvent({ k: 'roster', players: [...mp.players.entries()].map(([id, p]) => [id, p.name, p.ready ? 1 : 0]) });
+  renderRoom();
+}
+
 function leaveMultiplayer() {
-  if (net.role) net.close(true);
+  if (net.role) net.close();
   game.mp = false;
-  mp.guestReady = false;
-  mp.remoteName = '';
-  mp.pendingStart = false;
+  mp.players.clear();
   mp.pending.clear();
-  remote.remove();
+  mp.pendingStart = false;
+  clearRemotes();
   allyBolts.clear();
   hud.setLink(null);
 }
 
 // ---------------------------------------------------------------------------
 // Shared economy. In multiplayer the host owns the scrap pool and the upgrade
-// levels; the guest asks for purchases / spending and gets the result back.
-// Upgrades apply to both ships.
+// levels; guests ask for purchases / spending and get the result back.
+// Upgrades apply to every ship.
 // ---------------------------------------------------------------------------
 const isGuest = () => game.mp && net.role === 'client';
 
 function econBroadcast() {
-  if (game.mp && net.role === 'host') net.sendEvent({ k: 'econ', scrap: game.scrap, levels: game.levels });
+  if (game.mp && net.isHost) net.sendEvent({ k: 'econ', scrap: game.scrap, levels: game.levels });
 }
 
 /** Adopt new upgrade levels; each pilot gets the one-off bonus for any new Hull Plating / Missile Rack level. */
@@ -1716,76 +1899,87 @@ function announcePurchase(u, who) {
 
 /** Spend shared scrap on a personal service (repair / rearm). onOk runs once it's approved. */
 function spendScrap(amount, onOk) {
-  if (amount <= 0) return;
+  if (amount <= 0 || game.scrap < amount) return;
   if (isGuest()) {
-    if (game.scrap < amount) return;
     const id = ++mp.reqId;
     mp.pending.set(id, onOk);
     net.sendEvent({ k: 'spend', id, amount });
     return;
   }
-  if (game.scrap < amount) return;
   game.scrap -= amount;
   econBroadcast();
   onOk();
 }
 
+/** Credit scrap to the pool (solo / host only — guests salvage through the host). */
 function addScrap(value) {
   game.scrapTotal += value;
-  if (isGuest()) { net.sendEvent({ k: 'scrap', v: value }); return; }
   game.scrap += value;
   econBroadcast();
 }
 
 // ---------------------------------------------------------------------------
-// Network events
+// Network events — lobby
 // ---------------------------------------------------------------------------
-net.on('connected', () => {
-  if (net.role === 'host') {
-    net.sendEvent({ k: 'hello', v: PROTOCOL, name: callsign });
-    setLobbyStatus('Pilot connecting', 'busy');
-  } else {
-    setLobbyStatus('Linked — syncing clocks', 'busy');
-  }
-  renderRoom();
+net.on('join', ({ id }) => {          // host: a guest's link opened
+  mp.players.set(id, { name: `PILOT ${id + 1}`, ready: false });
+  net.sendEvent({ k: 'welcome', id, v: PROTOCOL }, id);
+  setLobbyStatus('A pilot is coming aboard', 'busy');
+  broadcastRoster();
 });
-net.on('hello', (h) => {
-  if (h.v !== PROTOCOL) {
-    setLobbyStatus('The other pilot is running a different version of the game. Both of you need the latest copy (hard-refresh with Cmd/Ctrl+Shift+R).', 'error');
-    if (net.role === 'host') net.dropGuest(); else net.close(true);
-    renderRoom();
+net.on('leave', ({ id, reason }) => { // host: a guest's link closed
+  const name = pilotName(id);
+  mp.players.delete(id);
+  const r = remotes.get(id);
+  if (r) { r.dispose(); remotes.delete(id); }
+  broadcastRoster();
+  if (game.mp) hud.banner(`${name} LEFT THE FLIGHT`, `${pilotCount()} PILOT${pilotCount() === 1 ? '' : 'S'} REMAINING`, 3000);
+  else if (lobbyOpen()) setLobbyStatus(`${name} ${reason}`, readyGuests() ? '' : 'busy');
+});
+net.on('connected', () => setLobbyStatus('Linked — waiting for clearance', 'busy'));   // guest
+net.on('welcome', (m) => {           // guest: the host accepted us
+  if (m.v !== PROTOCOL) {
+    setLobbyStatus('The host is running a different version of the game. Everyone needs the latest copy (hard-refresh with Cmd/Ctrl+Shift+R).', 'error');
+    net.close();
+    showLobbyChoice();
     return;
   }
-  mp.remoteName = cleanCallsign(h.name) || (net.role === 'host' ? 'PILOT 2' : 'HOST');
-  if (net.role === 'client') {
-    net.sendEvent({ k: 'hello', v: PROTOCOL, name: callsign });
-    showRoom();
-    setLobbyStatus(`Waiting for ${mp.remoteName} to launch`, 'busy');
-  } else {
-    mp.guestReady = true;
-    setLobbyStatus(`${mp.remoteName} is aboard — press START when you're ready`);
-    audio.beep(880, 0.08, 0.05, 'sine');
-  }
+  net.acceptedAs(m.id);
+  net.sendEvent({ k: 'hello', v: PROTOCOL, name: callsign });
+  showRoom();
+});
+net.on('hello', (m) => {             // host: a guest introduced themselves
+  if (m.v !== PROTOCOL) return;
+  mp.players.set(m.from, { name: cleanCallsign(m.name) || `PILOT ${m.from + 1}`, ready: true });
+  audio.beep(880, 0.08, 0.05, 'sine');
+  broadcastRoster();
+  setLobbyStatus(`${pilotName(m.from)} is aboard — press START when everyone's ready`);
+});
+net.on('roster', (m) => {            // guest: who's in the room
+  mp.players = new Map(m.players.map(([id, name, ready]) => [id, { name, ready: !!ready }]));
+  for (const [id, r] of remotes) if (!mp.players.has(id)) { r.dispose(); remotes.delete(id); }
+  for (const [id, r] of remotes) r.name = pilotName(id);
+  if (lobbyOpen()) setLobbyStatus(`Waiting for ${pilotName(0)} to launch`, 'busy');
   renderRoom();
 });
-net.on('name', (m) => {
-  mp.remoteName = cleanCallsign(m.name) || mp.remoteName;
-  remote.name = mp.remoteName;
-  if (lobbyOpen()) {
-    if (net.role === 'host' && mp.guestReady) setLobbyStatus(`${mp.remoteName} is aboard — press START when you're ready`);
-    else if (net.role === 'client') setLobbyStatus(`Waiting for ${mp.remoteName} to launch`, 'busy');
-  }
-  renderRoom();
+net.on('name', (m) => {              // host: a guest renamed
+  const p = mp.players.get(m.from);
+  if (p) p.name = cleanCallsign(m.name) || p.name;
+  const r = remotes.get(m.from);
+  if (r) r.name = pilotName(m.from);
+  broadcastRoster();
 });
-net.on('start', (m) => {
-  if (net.role !== 'client') return;
+net.on('start', (m) => {             // guest
   mp.epoch = m.epoch;
   if (net.synced) startMultiplayer();
   else { mp.pendingStart = true; setLobbyStatus('Syncing clocks', 'busy'); }
 });
 net.on('synced', () => { if (mp.pendingStart) startMultiplayer(); });
 
-net.on('s', (snap) => { if (game.mp) remote.applySnapshot(snap, net.netTime()); });
+// ---------------------------------------------------------------------------
+// Network events — flight
+// ---------------------------------------------------------------------------
+net.on('s', (snap) => { if (game.mp && snap.from !== net.myId) remoteFor(snap.from).applySnapshot(snap, net.netTime()); });
 net.on('f', (f) => {
   if (!game.mp) return;
   const late = Math.min(Math.max(net.netTime() - f.t, 0), 0.5);
@@ -1800,31 +1994,101 @@ net.on('d', (d) => {
   _v1.fromArray(d.p); _v2.fromArray(d.v);
   explode(_v1, _v2, 1.6, [1.0, 0.6, 0.2]);
   audio.explosion(1.4, THREE.MathUtils.clamp(1.4 - _v1.distanceTo(player.pos) / 700, 0.15, 1));
-  hud.notice(`${remote.name} DESTROYED · RESPAWNING`, 'orange');
+  hud.notice(`${pilotName(d.from)} DESTROYED · RESPAWNING`, 'orange');
 });
 
-// economy (host is the authority)
+// enemies, waves and wrecks (host → guests)
+net.on('es', (m) => { if (isGuest()) applyEnemySnapshot(m); });
+net.on('ws', (m) => {
+  if (!isGuest()) return;
+  game.wave = m.wave;
+  game.waveActive = !!m.active;
+  if (Math.abs(game.waveTimer - m.timer) > 0.5) game.waveTimer = m.timer;
+});
+net.on('waveStart', (m) => {
+  if (!isGuest()) return;
+  game.wave = m.n;
+  game.waveActive = true;
+  game.waveTimer = 0;
+  const restocked = missiles.ammo < missiles.capacity;
+  missiles.refill();
+  hud.banner(`WAVE ${m.n}`, `${m.count} HOSTILE SIGNATURES INBOUND${restocked ? ' · MISSILES REARMED' : ''}`, 2800);
+  audio.waveStart();
+});
+net.on('waveClear', (m) => {
+  if (!isGuest()) return;
+  game.waveActive = false;
+  game.waveTimer = INTERMISSION;
+  waveClearedFx(m.n);
+});
+net.on('ef', (m) => {                // an enemy fired: everyone simulates the same bolts
+  if (!isGuest()) return;
+  const late = Math.min(Math.max(net.netTime() - m.t, 0), 0.5);
+  _v1.fromArray(m.p);
+  for (let i = 0; i < m.v.length; i += 3) {
+    _v2.set(m.v[i], m.v[i + 1], m.v[i + 2]);
+    _v3.copy(_v1).addScaledVector(_v2, late);
+    enemyBolts.spawn(_v3, _v2, 4.2 - late, m.dmg);
+  }
+  _v2.fromArray(m.ev || [0, 0, 0]);
+  enemyFireFx(_v1, _v2, !!m.w);
+});
+net.on('kill', (m) => {
+  if (!isGuest()) return;
+  mp.deadIds.add(m.id);
+  const e = game.enemies.find((x) => x.netId === m.id && x.alive);
+  if (e) { e.pos.fromArray(m.p); e.vel.fromArray(m.v); killEnemy(e, m.cause, m.by, true); }
+  else if (m.cause === 'player' || m.cause === 'ram' || m.cause === 'missile') {
+    wrecks.spawn({ netId: m.id, type: ENEMY_TYPES[m.y] || 'raider', pos: new THREE.Vector3().fromArray(m.p), vel: new THREE.Vector3().fromArray(m.v) });
+  }
+});
+net.on('salvaged', (m) => { if (isGuest()) wrecks.removeById(m.id); });
+
+// guest reports (→ host)
+const enemyById = (id) => game.enemies.find((x) => x.netId === id && x.alive);
+net.on('hit', (m) => {
+  if (!game.mp || !net.isHost) return;
+  const e = enemyById(m.id);
+  if (e) hitEnemy(e, m.dmg, e.pos, m.cause, m.from);
+});
+net.on('ram', (m) => {
+  if (!game.mp || !net.isHost) return;
+  const e = enemyById(m.id);
+  if (e) killEnemy(e, m.cause, m.from);
+});
+net.on('callWave', () => { if (game.mp && net.isHost) callNextWave(); });
+net.on('salvage', (m) => {
+  if (!game.mp || !net.isHost) return;
+  const w = wrecks.byId(m.id);
+  if (!w) return;                    // someone got there first
+  wrecks.removeById(m.id);
+  addScrap(w.value);
+  net.sendEvent({ k: 'salvaged', id: m.id });
+});
+
+// economy
 net.on('econ', (m) => {
   if (!isGuest()) return;
   game.scrap = m.scrap;
   applyLevels(m.levels);
 });
 net.on('buy', (m) => {
-  if (!game.mp || net.role !== 'host') return;
+  if (!game.mp || !net.isHost) return;
   const u = buyUpgrade(m.id);
-  if (u) { announcePurchase(u, mp.remoteName); net.sendEvent({ k: 'bought', id: u.id, by: mp.remoteName }); }
-  else net.sendEvent({ k: 'denied', why: 'NOT ENOUGH SHARED SCRAP' });
+  if (u) { announcePurchase(u, pilotName(m.from)); net.sendEvent({ k: 'bought', id: u.id, by: m.from }); }
+  else net.sendEvent({ k: 'denied', why: 'NOT ENOUGH SHARED SCRAP' }, m.from);
 });
 net.on('bought', (m) => {
+  if (!isGuest()) return;
   const u = UPGRADES.find((x) => x.id === m.id);
-  if (u) announcePurchase(u, m.by === mp.remoteName ? mp.remoteName : 'YOU');
+  if (u) announcePurchase(u, m.by === net.myId ? 'YOU' : pilotName(m.by));
 });
 net.on('denied', (m) => hud.notice(m.why, 'red'));
 net.on('spend', (m) => {
-  if (!game.mp || net.role !== 'host') return;
+  if (!game.mp || !net.isHost) return;
   const ok = m.amount > 0 && game.scrap >= m.amount;
   if (ok) { game.scrap -= m.amount; econBroadcast(); }
-  net.sendEvent({ k: 'spendRes', id: m.id, ok });
+  net.sendEvent({ k: 'spendRes', id: m.id, ok }, m.from);
 });
 net.on('spendRes', (m) => {
   const cb = mp.pending.get(m.id);
@@ -1832,33 +2096,27 @@ net.on('spendRes', (m) => {
   if (m.ok && cb) cb();
   else if (!m.ok) hud.notice('NOT ENOUGH SHARED SCRAP', 'red');
 });
-net.on('scrap', (m) => {
-  if (!game.mp || net.role !== 'host') return;
-  game.scrap += m.v;
-  econBroadcast();
-});
 
+// guest lost the host
 net.on('disconnected', (reason) => {
   if (game.mp) {
+    // carry on alone: the host's enemies are gone, so restart the wave clock locally
     game.mp = false;
-    remote.remove();
+    for (const e of game.enemies) e.destroy();
+    game.enemies.length = 0;
+    clearRemotes();
     allyBolts.clear();
+    game.spawnQueue = [];
+    game.waveActive = false;
+    game.waveTimer = 10;
     hud.setLink(null);
-    hud.banner('PILOT DISCONNECTED', `${reason} · FLYING SOLO`, 4500);
-    net.close(true);
-  } else if (lobbyOpen() && net.role === 'host') {
-    // keep the room open for someone else
-    net.dropGuest();
-    mp.guestReady = false;
-    mp.remoteName = '';
-    setLobbyStatus(`${reason} Waiting for a pilot`, 'busy');
+    hud.banner('HOST DISCONNECTED', `${reason} · CONTINUING SOLO · NEXT WAVE IN 10 s`, 4500);
   } else if (lobbyOpen()) {
-    net.close(true);
     showLobbyChoice();
     setLobbyStatus(reason, 'error');
-  } else {
-    net.close(true);
   }
+  net.close();
+  mp.players.clear();
   renderRoom();
 });
 net.on('error', (msg) => { if (lobbyOpen()) setLobbyStatus(msg, 'error'); });
@@ -1916,26 +2174,29 @@ function showRoom() {
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let roomKey = '';
 function renderRoom() {
-  const host = net.role === 'host';
-  const guestHere = net.connected && !!mp.remoteName;
-  const ping = net.connected && net.rtt ? `${Math.round(net.rtt * 1000)} ms` : '';
-  const rows = [];
-  const row = (name, tags, you, ms) => `<div class="lp${you ? ' you' : ''}"><i></i><b>${esc(name)}</b><span class="lp-tag">${tags}</span><span class="lp-ping">${ms}</span></div>`;
-  if (host) {
-    rows.push(row(callsign, 'HOST · YOU', true, ''));
-    rows.push(guestHere ? row(mp.remoteName, 'READY', false, ping) : '<div class="lp empty">waiting for a pilot…</div>');
-  } else {
-    rows.push(row(mp.remoteName || 'HOST', 'HOST', false, ping));
-    rows.push(row(callsign, 'YOU', true, ''));
-  }
-  const key = rows.join('') + net.code + host + guestHere;
+  const host = net.isHost;
+  if (host) mp.players.set(0, { name: callsign, ready: true });
+  const ids = [...mp.players.keys()].sort((a, b) => a - b);
+  const rows = ids.map((id) => {
+    const p = mp.players.get(id);
+    const you = id === net.myId;
+    const tags = [id === 0 ? 'HOST' : (p.ready ? 'READY' : 'JOINING'), you ? 'YOU' : ''].filter(Boolean).join(' · ');
+    let ping = '';
+    if (!you && host) ping = net.rttOf(id) ? `${Math.round(net.rttOf(id) * 1000)} ms` : '';
+    if (!you && !host && id === 0 && net.rtt) ping = `${Math.round(net.rtt * 1000)} ms`;
+    return `<div class="lp${you ? ' you' : ''}"><i></i><b>${esc(you ? callsign : p.name)}</b><span class="lp-tag">${tags}</span><span class="lp-ping">${ping}</span></div>`;
+  });
+  for (let i = ids.length; i < MAX_PILOTS; i++) rows.push('<div class="lp empty">open slot — waiting for a pilot…</div>');
+  const ready = readyGuests();
+  const key = rows.join('') + net.code + host + ready;
   if (key === roomKey) return;
   roomKey = key;
   lobbyEls.players.innerHTML = rows.join('');
   lobbyEls.code.textContent = net.code || '-----';
-  lobbyEls.count.textContent = `${guestHere || !host ? 2 : 1} / 2`;
+  lobbyEls.count.textContent = `${Math.max(1, ids.length)} / ${MAX_PILOTS}`;
   lobbyEls.start.classList.toggle('hidden', !host);
-  lobbyEls.start.disabled = !(host && guestHere && mp.guestReady);
+  lobbyEls.start.disabled = !(host && ready > 0);
+  lobbyEls.start.textContent = host && ready > 0 ? `START · ${ready + 1} PILOTS · HOSTILES ×${(1 + 0.75 * ready).toFixed(2)}` : 'START';
 }
 
 function openLobby() {
@@ -1945,8 +2206,7 @@ function openLobby() {
 }
 async function hostGame() {
   if (!net.available) return;
-  mp.guestReady = false;
-  mp.remoteName = '';
+  mp.players.clear();
   showRoom();
   lobbyEls.code.textContent = '·····';
   setLobbyStatus('Opening a room', 'busy');
@@ -1954,7 +2214,7 @@ async function hostGame() {
     await net.host();
     roomKey = '';
     renderRoom();
-    setLobbyStatus('Share the room code — waiting for a pilot', 'busy');
+    setLobbyStatus('Share the room code — waiting for pilots', 'busy');
   } catch (msg) {
     setLobbyStatus(String(msg), 'error');
     showLobbyChoice();
@@ -1965,18 +2225,18 @@ async function joinGame() {
   const code = normalizeCode(lobbyEls.input.value);
   if (code.length !== 5) { setLobbyStatus('Enter the 5-character room code from the host.', 'error'); return; }
   setLobbyStatus(`Connecting to ${code}`, 'busy');
-  mp.remoteName = '';
+  mp.players.clear();
   try {
     await net.join(code);
   } catch (msg) {
     setLobbyStatus(String(msg), 'error');
-    net.close(true);
+    net.close();
+    showLobbyChoice();
   }
 }
 function leaveRoom() {
-  net.close(true);
-  mp.guestReady = false;
-  mp.remoteName = '';
+  net.close();
+  mp.players.clear();
   roomKey = '';
   if (lobbyEls.room.classList.contains('hidden')) setOverlay('menu');
   else { showLobbyChoice(); setLobbyStatus(''); }
@@ -2004,7 +2264,8 @@ lobbyEls.callsign.addEventListener('change', () => {
   callsign = cleanCallsign(lobbyEls.callsign.value) || callsign;
   lobbyEls.callsign.value = callsign;
   store.set('eh_callsign', callsign);
-  if (net.connected) net.sendEvent({ k: 'name', name: callsign });
+  if (net.isHost) broadcastRoster();
+  else if (net.connected) net.sendEvent({ k: 'name', name: callsign });
   roomKey = '';
   renderRoom();
 });
@@ -2035,5 +2296,5 @@ window.__eh = {
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
-  net, remote, allyBolts, playerBolts, mp, respawnPlayer, hostGame, joinGame, hostStart, addScrap,
+  net, remotes, allyBolts, playerBolts, enemyBolts, mp, respawnPlayer, hostGame, joinGame, hostStart, addScrap, enemyScale, pilotCount,
   game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };

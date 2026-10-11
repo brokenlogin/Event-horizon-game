@@ -32,9 +32,16 @@ const _fwd = new THREE.Vector3();
 const _gP = new THREE.Vector3();
 const _white = new THREE.Color(2.5, 2.5, 2.5);
 const _gE = new THREE.Vector3();
+const _np = new THREE.Vector3();
+const _nv = new THREE.Vector3();
+const _render = new THREE.Vector3();
+
+// network ids: the host numbers its enemies so guests can refer to them
+let nextNetId = 1;
+export function resetEnemyIds() { nextNetId = 1; }
 
 export class Enemy {
-  constructor(type, scene, difficulty) {
+  constructor(type, scene, difficulty, netId) {
     this.type = type;
     this.def = ENEMY_DEFS[type];
     this.difficulty = difficulty;
@@ -52,6 +59,14 @@ export class Enemy {
     this.age = 0;
     this.throttle = 0;
     this.spawnFx = 1;
+    this.netId = netId !== undefined ? netId : nextNetId++;
+    // multiplayer guests: a "proxy" follows the host's snapshots instead of running AI
+    this.proxy = false;
+    this.hasNet = false;
+    this.lastSnapT = -Infinity;
+    this.lastSeen = 0;
+    this.err = new THREE.Vector3();
+    this.targetQuat = new THREE.Quaternion();
     this.aimErr = new THREE.Vector3();
     this.leadFactor = 1;
     this.rollAim();
@@ -184,8 +199,43 @@ export class Enemy {
     integrate(this.pos, this.vel, this.thrust, dt);
   }
 
+  /** Guest side: adopt the host's state for this enemy, extrapolated to `now` with the real physics. */
+  applyNet(s, now) {
+    this.lastSeen = now;
+    if (s.t <= this.lastSnapT) return;
+    this.lastSnapT = s.t;
+    _np.fromArray(s.p); _nv.fromArray(s.v);
+    this.thrust.fromArray(s.a);
+    this.targetQuat.fromArray(s.q);
+    this.hp = s.hp;
+    this.throttle = s.th;
+    let dt = Math.min(Math.max(now - s.t, 0), 0.6);
+    while (dt > 1e-6) {
+      const h = Math.min(1 / 60, dt);
+      integrate(_np, _nv, this.thrust, h);
+      dt -= h;
+    }
+    if (this.hasNet) {
+      // keep the drawn ship where it is and let the difference fade (see updateVisual)
+      this.err.add(this.pos).sub(_np);
+      if (this.err.length() > 300) this.err.set(0, 0, 0);
+    } else {
+      this.quat.copy(this.targetQuat);
+      this.hasNet = true;
+    }
+    this.pos.copy(_np);
+    this.vel.copy(_nv);
+  }
+
+  /** Where the ship is drawn (proxies glide toward corrections instead of jumping). */
+  get renderPos() { return this.proxy ? _render.copy(this.pos).add(this.err) : this.pos; }
+
   updateVisual(dt, camPos, time) {
-    this.mesh.position.copy(this.pos);
+    if (this.proxy) {
+      this.err.multiplyScalar(Math.exp(-dt / 0.2));
+      this.quat.slerp(this.targetQuat, 1 - Math.exp(-dt * 10));
+    }
+    this.mesh.position.copy(this.renderPos);
     this.mesh.quaternion.copy(this.quat);
     this.flash = Math.max(0, this.flash - dt * 5);
     for (const m of this.built.mats) m.emissive.copy(m.userData.baseEmissive).lerp(_white, this.flash);
@@ -209,7 +259,7 @@ export class Enemy {
       const s = 1 - this.spawnFx;
       this.mesh.scale.setScalar(Math.max(0.01, s * s * (3 - 2 * s)));
     }
-    _tmp.set(0, 0, 1).applyQuaternion(this.quat).multiplyScalar(this.type === 'warden' ? 3.4 : 1.9).add(this.pos);
+    _tmp.set(0, 0, 1).applyQuaternion(this.quat).multiplyScalar(this.type === 'warden' ? 3.4 : 1.9).add(this.mesh.position);
     this.trail.update(dt, _tmp, camPos, 0.35 + this.throttle * 0.9);
   }
 
