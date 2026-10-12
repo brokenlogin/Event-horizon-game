@@ -153,13 +153,14 @@ html, body {
 /* ===================== MENUS ===================== */
 .overlay { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; }
 
-#menu { background: radial-gradient(ellipse at 30% 50%, rgba(0, 0, 0, 0.0) 0%, rgba(0, 0, 0, 0.55) 70%); justify-content: flex-start; padding-left: 8vw; }
-.menu-inner { max-width: 640px; }
+#menu { background: radial-gradient(ellipse at 30% 50%, rgba(0, 0, 0, 0.0) 0%, rgba(0, 0, 0, 0.55) 70%); flex-direction: column; align-items: flex-start; justify-content: flex-start; padding: 28px 16px 28px 8vw; overflow-y: auto; }
+/* centred while there's room; the footer follows below it, so the two never overlap */
+.menu-inner { max-width: 640px; margin: auto 0; flex-shrink: 0; }
 .title-kicker { font-family: var(--font-display); font-size: 13px; letter-spacing: 6px; color: var(--orange); text-shadow: 0 0 12px rgba(255, 173, 74, 0.6); margin-bottom: 10px; }
-.title { font-family: var(--font-display); font-weight: 900; font-size: clamp(54px, 8vw, 112px); line-height: 0.92; margin: 0 0 40px; letter-spacing: 8px; color: #fff; text-shadow: 0 0 30px rgba(94, 242, 255, 0.55), 0 0 80px rgba(94, 242, 255, 0.25); }
+.title { font-family: var(--font-display); font-weight: 900; font-size: clamp(54px, min(8vw, 11vh), 112px); line-height: 0.92; margin: 0 0 clamp(18px, 4vh, 40px); letter-spacing: 8px; color: #fff; text-shadow: 0 0 30px rgba(94, 242, 255, 0.55), 0 0 80px rgba(94, 242, 255, 0.25); }
 .title span { display: block; color: transparent; -webkit-text-stroke: 2px var(--cyan); text-shadow: 0 0 30px rgba(94, 242, 255, 0.4); letter-spacing: 12px; }
 .menu-buttons { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
-.menu-footer { position: absolute; bottom: 28px; left: 8vw; font-size: 15px; letter-spacing: 3px; color: rgba(217, 246, 255, 0.5); }
+.menu-footer { flex-shrink: 0; margin-top: 24px; font-size: 15px; letter-spacing: 3px; color: rgba(217, 246, 255, 0.5); }
 
 .btn {
   pointer-events: auto;
@@ -412,3 +413,13 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .dbg-quick { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .dbg-chip { font-size: 11px; letter-spacing: 3px; padding: 8px 14px; }
 .dbg-note { min-height: 1.2em; font-family: var(--font-display); font-size: 12px; letter-spacing: 3px; color: var(--orange); }
+
+/* short windows: tighten the title menu so it fits without scrolling */
+@media (max-height: 780px) {
+  .menu-buttons { gap: 9px; }
+  #menu .btn { padding-top: 10px; padding-bottom: 10px; }
+  #menu .btn.primary { padding-top: 13px; padding-bottom: 13px; }
+  #menu .best { margin-top: 14px; }
+  .title-kicker { margin-bottom: 6px; }
+  .menu-footer { margin-top: 14px; }
+}
