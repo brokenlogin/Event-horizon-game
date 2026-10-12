@@ -267,7 +267,10 @@ export class MissileSystem {
       if (!integrate(m.pos, m.vel, m.burning ? m.thrust : null, h)) { this._dispose(m); continue; }
       for (const e of this.ctx.enemies()) {
         if (!e.alive) continue;
-        if (m.pos.distanceTo(e.pos) < FUSE + e.radius) { this._detonate(m, e, false); break; }
+        const near = e.hitParts
+          ? e.hitParts.some((p) => m.pos.distanceTo(p.pos) < FUSE + p.radius)
+          : m.pos.distanceTo(e.pos) < FUSE + e.radius;
+        if (near) { this._detonate(m, e, false); break; }
       }
       if (!m.alive) continue;
       // any missile that flies through a wreck scoops up its scrap

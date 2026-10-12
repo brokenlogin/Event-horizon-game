@@ -13,7 +13,7 @@
 // NTP-style pings (best-of recent samples), so netTime() is shared.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL = 4;
+export const PROTOCOL = 5;
 export const MAX_PILOTS = 4;
 const PREFIX = 'event-horizon-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O, 1/I
@@ -22,7 +22,7 @@ const PING_INTERVAL = 1.0;
 const TIMEOUT = 5.0;
 const CONNECT_TIMEOUT = 15000;
 // guest messages the host forwards to the other guests
-const RELAY = new Set(['s', 'f', 'd']);
+const RELAY = new Set(['s', 'f', 'd', 'emx']);
 
 const nowSec = () => performance.now() / 1000;
 

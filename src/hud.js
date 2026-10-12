@@ -183,14 +183,16 @@ export class HUD {
           this.markerPool.push(m);
         }
         mi++;
-        const size = THREE.MathUtils.clamp(2400 / Math.max(dist, 1), 22, 90);
+        const size = e.def.boss
+          ? THREE.MathUtils.clamp(26000 / Math.max(dist, 1), 60, 420)
+          : THREE.MathUtils.clamp(2400 / Math.max(dist, 1), 22, 90);
         m.style.display = 'block';
         m.style.width = m.style.height = `${size}px`;
         m.style.left = `${s.x}px`; m.style.top = `${s.y}px`;
         const hidden = occludedByHole(camera.position, e.pos, 2.4);
         const cls = `tmark ${e.type}${e === lockedEnemy ? ' locked' : ''}${hidden ? ' occluded' : ''}`;
         if (m.className !== cls) m.className = cls;
-        m._hp.style.width = `${(e.hp / e.def.hp) * 100}%`;
+        m._hp.style.width = `${(e.hp / (e.maxHp || e.def.hp)) * 100}%`;
         m._dist.textContent = hidden ? `${dist.toFixed(0)}m · BEHIND HOLE` : `${dist.toFixed(0)}m`;
       } else {
         let a = this.arrowPool[ai];
@@ -215,6 +217,45 @@ export class HUD {
     }
     for (let i = mi; i < this.markerPool.length; i++) this.markerPool[i].style.display = 'none';
     for (let i = ai; i < this.arrowPool.length; i++) this.arrowPool[i].style.display = 'none';
+  }
+
+  /** Dreadnought health bar (top centre). info: { hp, maxHp, turrets, total } or null. */
+  setBoss(info) {
+    const el = this._boss || (this._boss = {
+      root: $('boss-bar'), fill: $('bb-fill'), turrets: $('bb-turrets'),
+    });
+    if (!info) { if (el.shown) { el.root.style.display = 'none'; el.shown = false; } return; }
+    if (!el.shown) { el.root.style.display = 'block'; el.shown = true; }
+    el.fill.style.transform = `scaleX(${Math.max(0, info.hp / info.maxHp)})`;
+    const txt = info.turrets ? `TURRETS ${info.turrets} / ${info.total}` : 'TURRETS SILENCED';
+    if (el.turrets.textContent !== txt) el.turrets.textContent = txt;
+  }
+
+  /** Small markers for dreadnought missiles and turrets. items: [{ pos, kind: 'missile' | 'missile me' | 'turret' }] */
+  updateThreats(items, camera, playerPos) {
+    const pool = this.threatPool || (this.threatPool = []);
+    const s = this._tp || (this._tp = {});
+    let n = 0;
+    for (const it of items) {
+      this.project(it.pos, camera, s);
+      if (!s.onScreen) continue;
+      let m = pool[n];
+      if (!m) {
+        m = document.createElement('div');
+        m.innerHTML = '<i></i><span></span>';
+        m._label = m.querySelector('span');
+        this.el.markers.appendChild(m);
+        pool.push(m);
+      }
+      n++;
+      const cls = `threat-mark ${it.kind}`;
+      if (m.className !== cls) m.className = cls;
+      m.style.display = 'block';
+      m.style.left = `${s.x}px`; m.style.top = `${s.y}px`;
+      const label = it.kind === 'turret' ? '' : `${Math.round(it.pos.distanceTo(playerPos))}m`;
+      if (m._label.textContent !== label) m._label.textContent = label;
+    }
+    for (let i = n; i < pool.length; i++) pool[i].style.display = 'none';
   }
 
   setAutopilot(s) {

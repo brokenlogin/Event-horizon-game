@@ -7,10 +7,10 @@ import { buildWreck } from './ships.js';
 // Fly within COLLECT_RANGE to salvage its scrap. Wrecks fade after 2 minutes.
 // ---------------------------------------------------------------------------
 
-export const SCRAP_VALUE = { raider: 12, seeker: 8, warden: 35 };
+export const SCRAP_VALUE = { raider: 12, seeker: 8, warden: 35, dread: 150 };
 export const COLLECT_RANGE = 75;
 const WRECK_LIFE = 120;
-const GLOW = { raider: 0xff4a2a, seeker: 0xffb030, warden: 0xc040ff };
+const GLOW = { raider: 0xff4a2a, seeker: 0xffb030, warden: 0xc040ff, dread: 0xff2a3c };
 
 const _v = new THREE.Vector3();
 
@@ -35,8 +35,9 @@ export class WreckSystem {
       life: WRECK_LIFE,
       built,
       alive: true,
-      radius: 4,
+      radius: enemy.type === 'dread' ? 16 : 4,
     };
+    if (enemy.type === 'dread') built.group.scale.setScalar(4.5);   // the fortress leaves a hulk
     built.group.position.copy(w.pos);
     this.list.push(w);
     return w;

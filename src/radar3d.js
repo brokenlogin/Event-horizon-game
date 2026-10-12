@@ -16,6 +16,7 @@ const COLORS = {
   raider: new THREE.Color(1.0, 0.3, 0.38),
   warden: new THREE.Color(1.0, 0.36, 0.94),
   seeker: new THREE.Color(1.0, 0.84, 0.29),
+  dread: new THREE.Color(1.0, 0.15, 0.2),
   wreck: new THREE.Color(0.43, 1.0, 0.6),
   ally: new THREE.Color(1.0, 0.68, 0.29),
 };

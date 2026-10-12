@@ -302,6 +302,201 @@ export function buildSeeker() {
 }
 
 // ---------------------------------------------------------------------------
+// Dreadnought (boss): a hostile orbital fortress. Armoured hex hull, a
+// spinning reactor ring, twin missile tubes in the prow and six gun turrets,
+// each covering its own side of the hull. Built in metres, nose along -Z,
+// local +Y is "up" (the orbit normal).
+// ---------------------------------------------------------------------------
+export function buildDreadnought() {
+  const group = new THREE.Group();
+  const model = new THREE.Group();
+  group.add(model);
+  const m = enemyMaterials(0x857480, 0xff2a3c);
+  m.hull.userData.baseEmissive.multiplyScalar(0.4);
+  const plate = new THREE.MeshStandardMaterial({ color: 0x7a2430, metalness: 0.5, roughness: 0.45, flatShading: true, envMapIntensity: 1.4 });
+  plate.userData.baseEmissive = new THREE.Color(0xff2a3c).multiplyScalar(0.05);
+  const strip = new THREE.MeshBasicMaterial({ color: hdr(0xff2a3c, 3.2) });
+  const stripDim = new THREE.MeshBasicMaterial({ color: hdr(0xff3a4a, 1.4) });
+  const ember = new THREE.MeshStandardMaterial({ color: 0x241a1e, metalness: 0.5, roughness: 0.8, flatShading: true, emissive: new THREE.Color(0xff5020), emissiveIntensity: 1.4 });
+  const zCyl = (rt, rb, len, seg, mat) => new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, len, seg).rotateX(Math.PI / 2), mat);
+
+  // --- armoured hull ---
+  // two hull sections with an open reactor bay between them (z 0..12)
+  for (const [z, len] of [[-14, 28], [20, 16]]) {
+    const hull = zCyl(15, 15, len, 6, m.hull);
+    hull.rotation.z = Math.PI / 6;         // flat top and bottom
+    hull.position.z = z;
+    model.add(hull);
+  }
+  const spineCore = zCyl(4, 4, 14, 8, m.dark);
+  spineCore.position.z = 6;
+  model.add(spineCore);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 13), m.dark);
+    strut.position.set(Math.cos(a) * 12.5, Math.sin(a) * 12.5, 6);
+    model.add(strut);
+  }
+  for (const z of [-20, -2, 16]) {
+    const band = zCyl(16.4, 16.4, 3, 6, plate);
+    band.rotation.z = Math.PI / 6;
+    band.position.z = z;
+    model.add(band);
+    const glow = zCyl(16.6, 16.6, 0.5, 6, stripDim);
+    glow.rotation.z = Math.PI / 6;
+    glow.position.z = z - 1.9;
+    model.add(glow);
+  }
+  // light strips along the hull's edges
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    for (const [z, len] of [[-14, 24], [20, 13]]) {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, len), strip);
+      s.position.set(Math.cos(a) * 15.1, Math.sin(a) * 15.1, z);
+      model.add(s);
+    }
+  }
+  // prow and its missile tubes
+  const prow = zCyl(6, 15, 14, 6, plate);
+  prow.rotation.z = Math.PI / 6;
+  prow.position.z = -35;
+  model.add(prow);
+  const launchers = [];
+  for (const x of [-4.2, 4.2]) {
+    const tube = zCyl(2.2, 2.2, 6, 12, m.hull);
+    tube.position.set(x, 0, -42);
+    model.add(tube);
+    const mouth = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.45, 8, 20), strip);
+    mouth.position.set(x, 0, -45.1);
+    model.add(mouth);
+    launchers.push(new THREE.Vector3(x, 0, -47));
+  }
+  // engine block
+  const aft = zCyl(13, 11, 8, 6, m.dark);
+  aft.rotation.z = Math.PI / 6;
+  aft.position.z = 32;
+  model.add(aft);
+  const flames = [];
+  for (const [x, y] of [[0, 5.5], [-5, -3], [5, -3]]) {
+    const nozzle = zCyl(2.6, 3.4, 3, 12, m.hull);
+    nozzle.position.set(x, y, 37);
+    model.add(nozzle);
+    addFlame(model, x, y, 38.5, 2.6, 0xff3a2a, flames);
+  }
+  // dorsal and ventral fins
+  for (const sy of [1, -1]) {
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(1.2, 9, 15), m.dark);
+    fin.position.set(0, sy * 17, 29);
+    model.add(fin);
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 15), strip);
+    edge.position.set(0, sy * 21.6, 29);
+    model.add(edge);
+  }
+
+  // --- reactor ring: spins around the hull, glowing core inside ---
+  const core = new THREE.Mesh(new THREE.SphereGeometry(7.5, 24, 16), new THREE.MeshBasicMaterial({ color: hdr(0xff3048, 5) }));
+  core.position.z = 6;
+  model.add(core);
+  const coreGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0xff2a3c, 1.3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  coreGlow.scale.setScalar(38);
+  coreGlow.position.z = 6;
+  model.add(coreGlow);
+  const ringPivot = new THREE.Group();
+  ringPivot.position.z = 6;
+  model.add(ringPivot);
+  ringPivot.add(new THREE.Mesh(new THREE.TorusGeometry(29, 2.6, 8, 48), m.dark));
+  ringPivot.add(new THREE.Mesh(new THREE.TorusGeometry(29, 0.9, 8, 64), strip));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(14, 1.6, 2.4), m.hull);
+    spoke.position.set(Math.cos(a) * 22, Math.sin(a) * 22, 0);
+    spoke.rotation.z = a;
+    ringPivot.add(spoke);
+    const pod = new THREE.Mesh(new THREE.BoxGeometry(4.5, 4.5, 7), plate);
+    pod.position.set(Math.cos(a) * 29, Math.sin(a) * 29, 0);
+    pod.rotation.z = a;
+    ringPivot.add(pod);
+  }
+
+  // --- six turrets, each covering its own face of the hull ---
+  const barrelGeo = new THREE.CylinderGeometry(0.45, 0.55, 7, 8).rotateX(Math.PI / 2);
+  const turrets = [];
+  const mounts = [
+    [0, 1, 0, -16], [0, 1, 0, 20], [0, -1, 0, -16], [0, -1, 0, 20], [1, 0, 0, -14], [-1, 0, 0, -14],
+  ];
+  for (const [nx, ny, nz, z] of mounts) {
+    const normal = new THREE.Vector3(nx, ny, nz);
+    const surface = Math.abs(ny) > 0 ? 13 : 14.6;
+    const base = normal.clone().multiplyScalar(surface).setZ(z);
+    const ped = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.8, 3, 10), m.dark);
+    ped.position.copy(base).addScaledVector(normal, 1.2);
+    ped.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+    model.add(ped);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.3, 0.3, 6, 20), stripDim);
+    ring.position.copy(base).addScaledVector(normal, 2.75);
+    ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    model.add(ring);
+    const stub = new THREE.Mesh(new THREE.DodecahedronGeometry(2.4, 0), ember);
+    stub.position.copy(base).addScaledVector(normal, 3);
+    stub.visible = false;
+    model.add(stub);
+    const head = new THREE.Group();
+    head.position.copy(base).addScaledVector(normal, 5.4);
+    head.scale.setScalar(1.35);
+    model.add(head);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 5.4), plate);
+    head.add(housing);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), m.dark);
+    dome.position.y = 1.4;
+    head.add(dome);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.6, 10, 8), strip);
+    eye.position.set(0, 0.6, -2.75);
+    head.add(eye);
+    for (const bx of [-1.15, 1.15]) {
+      const barrel = new THREE.Mesh(barrelGeo, m.dark);
+      barrel.position.set(bx, 0, -5.6);
+      head.add(barrel);
+      const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.6, 8).rotateX(Math.PI / 2), strip);
+      tip.position.set(bx, 0, -9.2);
+      head.add(tip);
+    }
+    turrets.push({ local: head.position.clone(), normal, head, stub, ring, muzzle: 13 });
+  }
+
+  return { group, model, flames, mats: [m.hull, m.dark, plate], radius: 33, ringPivot, core, coreGlow, turrets, launchers, muzzles: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Dreadnought missile: bigger and redder than the player's, with a beacon glow
+// so it reads at range (it can be shot down).
+// ---------------------------------------------------------------------------
+export function buildEnemyMissile() {
+  const group = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: 0x4a3a40, metalness: 0.6, roughness: 0.4, envMapIntensity: 1.4 });
+  const band = new THREE.MeshBasicMaterial({ color: hdr(0xff2a3c, 4) });
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.2, 10).rotateX(Math.PI / 2), body);
+  group.add(tube);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.7, 10).rotateX(-Math.PI / 2), band);
+  nose.position.z = -1.45;
+  group.add(nose);
+  const finGeo = new THREE.BoxGeometry(0.03, 0.6, 0.5);
+  for (let i = 0; i < 4; i++) {
+    const f = new THREE.Mesh(finGeo, body);
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    f.position.set(Math.cos(a) * 0.32, Math.sin(a) * 0.32, 0.85);
+    f.rotation.z = a - Math.PI / 2;
+    group.add(f);
+  }
+  const beacon = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0xff2a3c, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  beacon.scale.setScalar(5);
+  group.add(beacon);
+  const flames = [];
+  addFlame(group, 0, 0, 1.1, 0.24, 0xff4a2a, flames);
+  group.scale.setScalar(1.4);
+  return { group, flame: flames[0], beacon };
+}
+
+// ---------------------------------------------------------------------------
 // Player missile
 // ---------------------------------------------------------------------------
 export function buildMissile() {

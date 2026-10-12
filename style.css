@@ -382,3 +382,20 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .diff-opts button:disabled:not(.on) { opacity: 0.35; }
 .diff-desc { font-size: 13px; letter-spacing: 1.5px; color: rgba(217, 246, 255, 0.55); min-height: 1.2em; }
 .lobby-diff { align-items: center; margin: 6px 0 2px; }
+
+/* dreadnought (boss) */
+.tmark.dread { color: #ff2a3c; }
+.tmark.dread .box::before, .tmark.dread .box::after { border-width: 3px; }
+.edge-arrow.dread { color: #ff2a3c; transform-origin: center; }
+#boss-bar { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); width: min(520px, calc(100% - 32px)); display: none; text-align: center; pointer-events: none; }
+.bb-name { font-family: var(--font-display); font-size: 13px; letter-spacing: 5px; color: #ff4d5a; text-shadow: 0 0 10px rgba(255, 42, 60, 0.8); margin-bottom: 6px; }
+.bb-name span { font-size: 10px; letter-spacing: 3px; color: rgba(255, 200, 200, 0.7); margin-left: 10px; text-shadow: none; }
+.bb-track { height: 6px; background: rgba(255, 42, 60, 0.15); border: 1px solid rgba(255, 42, 60, 0.5); box-shadow: 0 0 14px rgba(255, 42, 60, 0.3); }
+.bb-track i { display: block; height: 100%; background: linear-gradient(90deg, #ff2a3c, #ff7a5a); transform-origin: left; box-shadow: 0 0 10px #ff2a3c; transition: transform 0.15s; }
+.threat-mark { position: absolute; transform: translate(-50%, -50%); pointer-events: none; font-family: var(--font-display); font-size: 9px; letter-spacing: 1px; white-space: nowrap; text-align: center; color: #ff6a6a; }
+.threat-mark i { display: block; margin: 0 auto 3px; }
+.threat-mark.missile i { width: 9px; height: 9px; border: 1.5px solid currentColor; transform: rotate(45deg); }
+.threat-mark.missile.me { color: #ff2a3c; }
+.threat-mark.missile.me i { width: 14px; height: 14px; border-width: 2px; filter: drop-shadow(0 0 4px currentColor); animation: blink 0.4s steps(2) infinite; }
+.threat-mark.turret i { width: 12px; height: 12px; border: 1.5px solid currentColor; border-radius: 50%; opacity: 0.8; }
+.threat-mark.turret { color: #ff8a7a; }

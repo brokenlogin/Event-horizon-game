@@ -12,6 +12,16 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
+## The Dreadnought (every 5th wave)
+
+On waves 5, 10, 15 and so on, an enemy fortress warps in on a fixed, slightly inclined orbit at 1350 m, with a smaller escort than usual.
+
+- **Armour:** 200 hull, plus 30% more on each later appearance and ×crew size in multiplayer. Its health bar sits at the top of the screen.
+- **Six turrets**, each covering its own side of the hull (top, bottom, port, starboard). The hull and the hole block their aim. Destroying one is worth 250 points.
+- **Homing missiles** from the prow, one every 7 seconds or so, aimed at the nearest pilot (18 damage). Shoot them down for 50 points, or break line of sight with the hole: a missile that loses its target never reacquires it.
+- **Ramming** it just bounces you off and hurts.
+- **Destroying it** is worth 3000 points and leaves a hulk worth 150 scrap.
+
 ## Difficulty
 
 Pick it on the main menu, above LAUNCH:
@@ -91,6 +101,7 @@ Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's 
 - `src/main.js`: game loop, player, waves, camera, post-processing
 - `src/enemies.js`: enemy AI
 - `src/missiles.js`: missile lock-on, guidance and detonation
+- `src/enemymissiles.js`: the Dreadnought's homing missiles (shared between pilots in multiplayer)
 - `src/station.js`: the orbital station and docking
 - `src/wrecks.js`: salvageable wrecks and scrap
 - `src/stationui.js`: upgrade definitions and the docked shop UI

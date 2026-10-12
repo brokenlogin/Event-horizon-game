@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { integrate, periapsisEstimate, accelAt, occludedByHole, ARENA_RADIUS, RS } from './physics.js';
-import { buildRaider, buildWarden, buildSeeker } from './ships.js';
+import { integrate, periapsisEstimate, accelAt, occludedByHole, circularSpeed, ARENA_RADIUS, RS } from './physics.js';
+import { buildRaider, buildWarden, buildSeeker, buildDreadnought } from './ships.js';
 import { Trail } from './fx.js';
 
 export const ENEMY_DEFS = {
@@ -17,6 +17,14 @@ export const ENEMY_DEFS = {
   seeker: {
     hp: 2, accel: 38, turn: 4.0, engageRange: 1200, preferred: 0, approach: 70,
     fireRange: 0, ramDamage: 34, score: 150, trailColor: 0xffb030, build: buildSeeker,
+  },
+  // boss: an orbital fortress that holds one low orbit, defended by six turrets and a missile launcher
+  dread: {
+    boss: true, hp: 200, accel: 14, turn: 0.25, score: 3000, trailColor: 0xff2a3c, build: buildDreadnought,
+    turret: {
+      hp: 10, range: 800, boltSpeed: 240, burst: 3, burstGap: 0.12, cooldown: [2.0, 3.0], dmg: 6, aimError: 6, turn: 1.5, score: 250,
+    },
+    missileCooldown: [6.5, 8.5], missileRange: 1500,
   },
 };
 
@@ -35,6 +43,8 @@ const _gE = new THREE.Vector3();
 const _np = new THREE.Vector3();
 const _nv = new THREE.Vector3();
 const _render = new THREE.Vector3();
+const _zero = new THREE.Vector3();
+const _qInv = new THREE.Quaternion();
 
 // network ids: the host numbers its enemies so guests can refer to them
 let nextNetId = 1;
@@ -50,6 +60,7 @@ export class Enemy {
     this.quat = new THREE.Quaternion();
     this.thrust = new THREE.Vector3();
     this.hp = this.def.hp;
+    this.maxHp = this.def.hp;
     this.alive = true;
     this.flash = 0;
     this.fireTimer = 1.5 + Math.random() * 2.5;
@@ -76,8 +87,173 @@ export class Enemy {
     this.mesh = built.group;
     this.radius = built.radius;
     scene.add(this.mesh);
-    this.trail = new Trail(scene, { segments: 36, width: type === 'warden' ? 0.9 : 0.5, color: this.def.trailColor, interval: 0.025 });
+    this.trail = new Trail(scene, { segments: 36, width: this.def.boss ? 1.8 : type === 'warden' ? 0.9 : 0.5, color: this.def.trailColor, interval: 0.025 });
     this.scene = scene;
+    if (this.def.boss) this._initBoss();
+  }
+
+  // -------------------------------------------------------------------------
+  // Boss: station-keeping on a circular orbit, independent turrets, missiles
+  // -------------------------------------------------------------------------
+  _initBoss() {
+    const td = this.def.turret;
+    this.orbitR = 1350;
+    this.orbitN = new THREE.Vector3(0, 1, 0);
+    this.orbitV = circularSpeed(this.orbitR);
+    this.missileTimer = 5;
+    this.launcherIdx = 0;
+    this.turrets = this.built.turrets.map((b, i) => ({
+      ...b, index: i, owner: this, isTurret: true,
+      hp: td.hp, maxHp: td.hp, alive: true, radius: 6.5,
+      pos: new THREE.Vector3(), worldN: new THREE.Vector3(), aimQuat: new THREE.Quaternion(), aimDir: new THREE.Vector3(),
+      aimErr: new THREE.Vector3(), lead: 1, engaged: false,
+      fireTimer: 1.5 + Math.random() * 2, burstLeft: 0, burstTimer: 0,
+    }));
+    // hit volume: a chain of spheres down the hull plus the reactor ring (a single
+    // big sphere would swallow shots meant for the turrets on its surface)
+    const parts = [[0, 0, -40, 11], [0, 0, -26, 15], [0, 0, -10, 15], [0, 0, 6, 15], [0, 0, 22, 15], [0, 0, 36, 13]];
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      parts.push([Math.cos(a) * 29, Math.sin(a) * 29, 6, 3.4]);
+    }
+    this.hitParts = parts.map(([x, y, z, radius]) => ({
+      local: new THREE.Vector3(x, y, z), pos: new THREE.Vector3(), radius, owner: this, isHull: true,
+      get alive() { return this.owner.alive; },
+    }));
+  }
+
+  /** Put the fortress on its orbit (radius, unit normal, start position/velocity already set). */
+  setOrbit(radius, normal) {
+    this.orbitR = radius;
+    this.orbitN.copy(normal);
+    this.orbitV = circularSpeed(radius);
+    _m.lookAt(this.pos, _tmp.copy(this.pos).add(this.vel), this.orbitN);
+    this.quat.setFromRotationMatrix(_m);
+    this.updateTurretPositions();
+    for (const t of this.turrets) {
+      _m.lookAt(_zero, t.worldN, this.orbitN);
+      t.aimQuat.setFromRotationMatrix(_m);
+    }
+  }
+
+  updateTurretPositions() {
+    for (const p of this.hitParts) p.pos.copy(p.local).applyQuaternion(this.quat).add(this.pos);
+    for (const t of this.turrets) {
+      t.pos.copy(t.local).applyQuaternion(this.quat).add(this.pos);
+      t.worldN.copy(t.normal).applyQuaternion(this.quat);
+    }
+  }
+
+  get turretsAlive() { return this.turrets ? this.turrets.reduce((n, t) => n + (t.alive ? 1 : 0), 0) : 0; }
+
+  rollTurretAim(t) {
+    const td = this.def.turret;
+    t.lead = 0.75 + Math.random() * 0.35;
+    const mag = td.aimError * Math.max(0.55, 1 - this.difficulty * 0.05) * Math.sqrt(Math.random());
+    const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, sq = Math.sqrt(1 - u * u);
+    t.aimErr.set(sq * Math.cos(th), sq * Math.sin(th), u).multiplyScalar(mag);
+  }
+
+  thinkBoss(dt, game) {
+    const def = this.def;
+    this.age += dt;
+    // station-keeping: hold the circular orbit (gravity does nearly all the work)
+    const r = this.pos.length();
+    const radial = _up.copy(this.pos).divideScalar(Math.max(r, 1e-3));
+    const n = this.orbitN;
+    const pro = _tmp.crossVectors(n, radial).normalize();
+    const vr = this.vel.dot(radial), vn = this.vel.dot(n), vt = this.vel.dot(pro);
+    this.thrust.set(0, 0, 0)
+      .addScaledVector(radial, -0.02 * (r - this.orbitR) - 0.4 * vr)
+      .addScaledVector(n, -0.02 * this.pos.dot(n) - 0.4 * vn)
+      .addScaledVector(pro, 0.4 * (this.orbitV - vt))
+      .clampLength(0, def.accel);
+    this.throttle = 0.35;
+    // nose along the orbit, belly to the hole's plane
+    _m.lookAt(this.pos, _tmp2.copy(this.pos).add(this.vel), n);
+    _tq.setFromRotationMatrix(_m);
+    this.quat.rotateTowards(_tq, def.turn * dt);
+    this.updateTurretPositions();
+    this.aimTurrets(dt, game, true);
+
+    // missile launcher: one at a time at the nearest pilot in range
+    this.missileTimer -= dt;
+    if (this.missileTimer <= 0 && this.age > 4) {
+      const target = game.nearestPilot(this.pos);
+      const ok = target && target.alive && target.pos.distanceTo(this.pos) < def.missileRange && !occludedByHole(this.pos, target.pos, 1.6);
+      if (ok) {
+        game.bossMissile(this, this.launcherIdx++ % this.built.launchers.length, target);
+        const [a, b] = def.missileCooldown;
+        this.missileTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);
+      } else this.missileTimer = 1;
+    }
+  }
+
+  /**
+   * Each turret tracks the nearest pilot on its own side of the hull (the hull
+   * and the hole both block it). `armed` turrets also fire (host / solo only);
+   * guests run this just to point the guns.
+   */
+  aimTurrets(dt, game, armed) {
+    const td = this.def.turret;
+    const fwd = this.forward;
+    for (const t of this.turrets) {
+      if (!t.alive) continue;
+      const target = game.nearestPilot(t.pos);
+      let aim = null;
+      t.engaged = false;
+      if (target && target.alive) {
+        _toP.subVectors(target.pos, t.pos);
+        const dist = _toP.length();
+        if (dist < td.range * 1.4 && _toP.dot(t.worldN) > 0.08 * dist && !occludedByHole(t.pos, target.pos, 1.6)) {
+          const lead = (dist / td.boltSpeed) * t.lead;
+          // long shots arc: allow for the difference between the gravity along the
+          // bolt's path and the gravity on the target over the flight time
+          _gE.addVectors(t.pos, target.pos).multiplyScalar(0.5);
+          accelAt(_gE, _gE);
+          accelAt(target.pos, _gP).sub(_gE).multiplyScalar(0.5 * lead * lead);
+          aim = _des.copy(target.pos).addScaledVector(target.vel, lead).addScaledVector(this.vel, -lead)
+            .add(_gP).add(t.aimErr).sub(t.pos).normalize();
+          t.engaged = dist < td.range;
+        }
+      }
+      if (!aim) aim = _des.copy(t.worldN).add(fwd).normalize();   // idle: watch forward
+      t.aimDir.copy(aim);
+      _m.lookAt(_zero, aim, t.worldN);
+      _tq.setFromRotationMatrix(_m);
+      t.aimQuat.rotateTowards(_tq, td.turn * dt);
+      if (!armed) continue;
+      t.fireTimer -= dt;
+      if (t.burstLeft > 0) {
+        t.burstTimer -= dt;
+        if (t.burstTimer <= 0) {
+          t.burstLeft--;
+          t.burstTimer = td.burstGap;
+          game.turretFire(this, t);
+        }
+      } else if (t.engaged && t.fireTimer <= 0 && this.age > 3) {
+        const barrel = _tmp.set(0, 0, -1).applyQuaternion(t.aimQuat);
+        if (barrel.dot(aim) > 0.995) {
+          t.burstLeft = td.burst;
+          t.burstTimer = 0;
+          const [a, b] = td.cooldown;
+          t.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06);
+          this.rollTurretAim(t);
+        }
+      }
+    }
+  }
+
+  /** A turret has been destroyed (visuals only; the caller handles score and effects). */
+  killTurret(i) {
+    const t = this.turrets[i];
+    if (!t || !t.alive) return false;
+    t.alive = false;
+    t.hp = 0;
+    t.head.visible = false;
+    t.ring.visible = false;
+    t.stub.visible = true;
+    return true;
   }
 
   /**
@@ -98,6 +274,7 @@ export class Enemy {
 
   /** Per-frame AI: decide thrust vector & facing, maybe fire. */
   think(dt, player, game) {
+    if (this.def.boss) { this.thinkBoss(dt, game); return; }
     const def = this.def;
     this.age += dt;
     this.thrust.set(0, 0, 0);
@@ -197,6 +374,7 @@ export class Enemy {
 
   physics(dt) {
     integrate(this.pos, this.vel, this.thrust, dt);
+    if (this.turrets) this.updateTurretPositions();
   }
 
   /** Guest side: adopt the host's state for this enemy, extrapolated to `now` with the real physics. */
@@ -208,6 +386,7 @@ export class Enemy {
     this.thrust.fromArray(s.a);
     this.targetQuat.fromArray(s.q);
     this.hp = s.hp;
+    if (s.mhp) this.maxHp = s.mhp;
     this.throttle = s.th;
     let dt = Math.min(Math.max(now - s.t, 0), 0.6);
     while (dt > 1e-6) {
@@ -246,7 +425,15 @@ export class Enemy {
       f.mat.uniforms.uIntensity.value = 0.5 + this.throttle;
       f.glow.material.opacity = 0.5 + this.throttle * 0.5;
     }
-    if (this.built.ringPivot) this.built.ringPivot.rotation.z += dt * 0.8;
+    if (this.built.ringPivot) this.built.ringPivot.rotation.z += dt * (this.def.boss ? 0.25 : 0.8);
+    if (this.turrets) {
+      // turret heads hold their world aim while the hull turns under them
+      _qInv.copy(this.quat).invert();
+      for (const t of this.turrets) if (t.alive) t.head.quaternion.copy(_qInv).multiply(t.aimQuat);
+      const p = 1 + Math.sin(time * 2.2) * 0.12;
+      this.built.core.scale.setScalar(p);
+      this.built.coreGlow.material.opacity = 0.75 + Math.sin(time * 2.2) * 0.25;
+    }
     if (this.type === 'seeker') {
       this.built.model.rotation.z += dt * 3;
       this.built.model.rotation.x += dt * 1.7;
@@ -255,12 +442,13 @@ export class Enemy {
     }
     // warp-in scale pop
     if (this.spawnFx > 0) {
-      this.spawnFx = Math.max(0, this.spawnFx - dt * 2.5);
+      this.spawnFx = Math.max(0, this.spawnFx - dt * (this.def.boss ? 0.7 : 2.5));
       const s = 1 - this.spawnFx;
       this.mesh.scale.setScalar(Math.max(0.01, s * s * (3 - 2 * s)));
     }
-    _tmp.set(0, 0, 1).applyQuaternion(this.quat).multiplyScalar(this.type === 'warden' ? 3.4 : 1.9).add(this.mesh.position);
-    this.trail.update(dt, _tmp, camPos, 0.35 + this.throttle * 0.9);
+    _tmp.set(0, 0, 1).applyQuaternion(this.quat).multiplyScalar(this.def.boss ? 40 : this.type === 'warden' ? 3.4 : 1.9).add(this.mesh.position);
+    if (this.def.boss) this.trail.mesh.visible = false;   // its engine plume is enough; a 90 m trail reads as a laser
+    else this.trail.update(dt, _tmp, camPos, 0.35 + this.throttle * 0.9);
   }
 
   destroy() {
