@@ -303,7 +303,7 @@ export function buildSeeker() {
 
 // ---------------------------------------------------------------------------
 // Dreadnought (boss): a hostile orbital fortress. Armoured hex hull, a
-// spinning reactor ring, twin missile tubes in the prow and six gun turrets,
+// spinning reactor ring, twin launch tubes in the prow and six gun turrets,
 // each covering its own side of the hull. Built in metres, nose along -Z,
 // local +Y is "up" (the orbit normal).
 // ---------------------------------------------------------------------------
@@ -356,7 +356,7 @@ export function buildDreadnought() {
       model.add(s);
     }
   }
-  // prow and its missile tubes
+  // prow and its seeker launch tubes
   const prow = zCyl(6, 15, 14, 6, plate);
   prow.rotation.z = Math.PI / 6;
   prow.position.z = -35;
@@ -464,36 +464,6 @@ export function buildDreadnought() {
   }
 
   return { group, model, flames, mats: [m.hull, m.dark, plate], radius: 33, ringPivot, core, coreGlow, turrets, launchers, muzzles: [] };
-}
-
-// ---------------------------------------------------------------------------
-// Dreadnought missile: bigger and redder than the player's, with a beacon glow
-// so it reads at range (it can be shot down).
-// ---------------------------------------------------------------------------
-export function buildEnemyMissile() {
-  const group = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: 0x4a3a40, metalness: 0.6, roughness: 0.4, envMapIntensity: 1.4 });
-  const band = new THREE.MeshBasicMaterial({ color: hdr(0xff2a3c, 4) });
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.2, 10).rotateX(Math.PI / 2), body);
-  group.add(tube);
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.7, 10).rotateX(-Math.PI / 2), band);
-  nose.position.z = -1.45;
-  group.add(nose);
-  const finGeo = new THREE.BoxGeometry(0.03, 0.6, 0.5);
-  for (let i = 0; i < 4; i++) {
-    const f = new THREE.Mesh(finGeo, body);
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    f.position.set(Math.cos(a) * 0.32, Math.sin(a) * 0.32, 0.85);
-    f.rotation.z = a - Math.PI / 2;
-    group.add(f);
-  }
-  const beacon = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0xff2a3c, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-  beacon.scale.setScalar(5);
-  group.add(beacon);
-  const flames = [];
-  addFlame(group, 0, 0, 1.1, 0.24, 0xff4a2a, flames);
-  group.scale.setScalar(1.4);
-  return { group, flame: flames[0], beacon };
 }
 
 // ---------------------------------------------------------------------------

@@ -18,9 +18,15 @@ On waves 5, 10, 15 and so on, an enemy fortress warps in on a fixed, slightly in
 
 - **Armour:** 200 hull, plus 30% more on each later appearance and ×crew size in multiplayer. Its health bar sits at the top of the screen.
 - **Six turrets**, each covering its own side of the hull (top, bottom, port, starboard). The hull and the hole block their aim. Destroying one is worth 250 points.
-- **Homing missiles** from the prow, one every 7 seconds or so, aimed at the nearest pilot (18 damage). Shoot them down for 50 points, or break line of sight with the hole: a missile that loses its target never reacquires it.
+- **Seeker launcher** in the prow: whenever a pilot is within 1.5 km and in sight, it sends out a seeker drone every 7 seconds or so (at most 3 out at once, more with a bigger crew). Launched seekers leave no wreck.
+- **Lock range:** your missiles lock onto it from 2000 m (double the usual), and aiming anywhere on the hull counts.
+- **Intercept:** with a Dreadnought on the field, B flies you to a parking spot 600 m behind it on its own orbit, then hands control back.
 - **Ramming** it just bounces you off and hurts.
 - **Destroying it** is worth 3000 points and leaves a hulk worth 150 scrap.
+
+## Debug launch
+
+DEBUG LAUNCH on the main menu starts a solo run at any wave (1–30) with any upgrade levels and starting scrap. It has a one-click preset for the wave-5 boss. Debug runs don't count toward your best score.
 
 ## Difficulty
 
@@ -62,7 +68,7 @@ Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's 
 | Left click | Fire cannons |
 | E | Start a missile lock (keep the target near the crosshair for 1.5 s) |
 | Q | Fire a homing missile once locked (2 per wave on Normal, refilled each wave) |
-| B | Docking assist: the autopilot flies the rendezvous (any thrust key cancels) |
+| B | Docking assist: the autopilot flies the rendezvous (any thrust key cancels). With a Dreadnought alive it parks you 600 m behind it instead |
 | F | Undock from the station |
 | N | Call the next wave early |
 | Esc | Pause |
@@ -101,7 +107,7 @@ Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's 
 - `src/main.js`: game loop, player, waves, camera, post-processing
 - `src/enemies.js`: enemy AI
 - `src/missiles.js`: missile lock-on, guidance and detonation
-- `src/enemymissiles.js`: the Dreadnought's homing missiles (shared between pilots in multiplayer)
+
 - `src/station.js`: the orbital station and docking
 - `src/wrecks.js`: salvageable wrecks and scrap
 - `src/stationui.js`: upgrade definitions and the docked shop UI

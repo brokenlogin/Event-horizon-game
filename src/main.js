@@ -17,9 +17,8 @@ import { Enemy, resetEnemyIds } from './enemies.js';
 import { GameAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
-import { EnemyMissileSystem, ENEMY_MISSILE_DAMAGE } from './enemymissiles.js';
 import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
-import { DockAssist } from './autopilot.js';
+import { DockAssist, TrailPoint } from './autopilot.js';
 import { Radar3D } from './radar3d.js';
 import { net, PROTOCOL, MAX_PILOTS, normalizeCode } from './net.js';
 import { RemotePlayer } from './remote.js';
@@ -314,8 +313,8 @@ const game = {
   warnBeep: 0, proximityBeep: 0, plasmaFx: 0,
   scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   mp: false,
-  bumpCd: 0, missileBeep: 0, missileSeq: 0, clearHold: 0,
-  enemyFire, turretFire, bossMissile, nearestPilot,
+  bumpCd: 0, clearHold: 0,
+  enemyFire, turretFire, bossLaunch, nearestPilot,
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
 const DIFFICULTIES = {
@@ -495,7 +494,7 @@ function startWave(n) {
 
 function waveBanner(n, count, restocked) {
   if (isBossWave(n)) {
-    hud.banner(`WAVE ${n} · DREADNOUGHT`, `ENEMY FORTRESS ON A LOW ORBIT · KNOCK OUT ITS TURRETS · SHOOT DOWN ITS MISSILES${restocked ? ' · MISSILES REARMED' : ''}`, 4200);
+    hud.banner(`WAVE ${n} · DREADNOUGHT`, `ENEMY FORTRESS ON A LOW ORBIT · KNOCK OUT ITS TURRETS · WATCH FOR LAUNCHED SEEKERS${restocked ? ' · MISSILES REARMED' : ''}`, 4200);
     audio.waveStart();
     audio.alarm();
   } else {
@@ -624,27 +623,39 @@ function turretFire(e, t) {
   if (game.mp) net.sendEvent({ k: 'ef', t: net.netTime(), p: r2(muzzle), ev: r2(e.vel), v: r2(_q1Vec), dmg: td.dmg, w: 0 });
 }
 
-/** The dreadnought launches a homing missile at `target` (host / solo). */
-function bossMissile(e, li, target) {
-  const pos = _v1.copy(e.built.launchers[li]).applyQuaternion(e.quat).add(e.pos);
-  const vel = _v2.copy(e.vel).addScaledVector(forwardOf(e.quat, _v3), 40);
-  const targetId = target === player ? net.myId : target.pilotId;
-  const id = ++game.missileSeq;
-  enemyMissiles.spawn({ id, pos, vel, targetId });
-  missileLaunchFx(pos, vel, targetId);
-  if (game.mp) net.sendEvent({ k: 'em', id, t: net.netTime(), p: r2(pos), v: r2(vel), tg: targetId });
+/**
+ * The dreadnought launches a seeker drone from its prow (host / solo). Launched
+ * seekers are ordinary seekers, but leave no wreck (no farming the fortress).
+ * Returns false when too many of its drones are already out.
+ */
+function bossLaunch(e, li) {
+  const cap = 2 + pilotCount();
+  let out = 0;
+  for (const x of game.enemies) if (x.alive && x.launched) out++;
+  if (out >= cap) return false;
+  const s = new Enemy('seeker', scene, game.wave - 1);
+  s.launched = true;
+  s.noWreck = true;
+  const fwd = forwardOf(e.quat, _v3);
+  s.pos.copy(e.built.launchers[li]).applyQuaternion(e.quat).add(e.pos);
+  s.vel.copy(e.vel).addScaledVector(fwd, 45);
+  s.quat.copy(e.quat);
+  s.age = 0.8;             // skip most of the warm-up: it comes out hot
+  s.spawnFx = 0.6;
+  s.mesh.position.copy(s.pos);
+  s.mesh.scale.setScalar(0.4);
+  s.trail.reset(s.pos);
+  game.enemies.push(s);
+  launchFx(s.pos, s.vel);
+  return true;
 }
 
-function missileLaunchFx(pos, vel, targetId) {
+function launchFx(pos, vel) {
   for (let i = 0; i < 24; i++) {
-    randDir(_v3);
-    particles.emit(pos.x, pos.y, pos.z, vel.x + _v3.x * 12, vel.y + _v3.y * 12, vel.z + _v3.z * 12, 1.2, 0.5, 0.4, 1.2, 3, 0.7, false);
+    randDir(_v1);
+    particles.emit(pos.x, pos.y, pos.z, vel.x + _v1.x * 12, vel.y + _v1.y * 12, vel.z + _v1.z * 12, 1.4, 0.9, 0.3, 1.2, 3, 0.7, false);
   }
   if (pos.distanceTo(player.pos) < 1000) audio.missileLaunch();
-  if (targetId === net.myId && player.alive) {
-    hud.notice('⚠ MISSILE LAUNCH — INBOUND ON YOU', 'red');
-    audio.beep(1400, 0.12, 0.07, 'square');
-  }
 }
 
 /** A cannon hit on one of the dreadnought's turrets. The host owns turret health. */
@@ -697,7 +708,7 @@ function killEnemy(e, cause, by = net.myId, fromHost = false) {
   if (!e.alive) return;
   if (isGuest() && !fromHost) return;   // guests never decide kills themselves
   if (game.mp && !isGuest()) {
-    net.sendEvent({ k: 'kill', id: e.netId, y: ENEMY_TYPES.indexOf(e.type), cause, by, p: r2(e.pos), v: r2(e.vel) });
+    net.sendEvent({ k: 'kill', id: e.netId, y: ENEMY_TYPES.indexOf(e.type), cause, by, p: r2(e.pos), v: r2(e.vel), nw: e.noWreck ? 1 : 0 });
   }
   if (isGuest()) mp.deadIds.add(e.netId);
   const boss = !!e.def.boss;
@@ -707,7 +718,7 @@ function killEnemy(e, cause, by = net.myId, fromHost = false) {
   const dist = e.pos.distanceTo(player.pos);
   if (cause === 'void') { e.destroy(); return; }
   if (cause !== 'horizon') explode(e.pos, e.vel, scale, tint);
-  if (cause === 'player' || cause === 'ram' || cause === 'missile') wrecks.spawn(e);
+  if ((cause === 'player' || cause === 'ram' || cause === 'missile') && !e.noWreck) wrecks.spawn(e);
   audio.explosion(scale, THREE.MathUtils.clamp(1.4 - dist / 700, 0.15, 1));
   if (dist < 60) game.trauma = Math.min(1, game.trauma + 0.35);
 
@@ -769,34 +780,6 @@ const missiles = new MissileSystem({
   explode, hitEnemy, damagePlayer,
 });
 
-const enemyMissiles = new EnemyMissileSystem({
-  scene, particles, audio, explode, player,
-  localId: () => net.myId,
-  pilotById(id) {
-    if (!game.mp || id === net.myId) return player;
-    const r = remotes.get(id);
-    return r && r.present ? r : null;
-  },
-  onLocalHit(m) {
-    damagePlayer(ENEMY_MISSILE_DAMAGE * diffDef().dmg, { cause: 'HIT BY A DREADNOUGHT MISSILE' });
-    game.trauma = Math.min(1, game.trauma + 0.5);
-    if (game.mp) net.sendEvent({ k: 'emx', id: m.id });
-  },
-});
-
-/** One of your bolts caught a dreadnought missile. */
-function shootDownMissile(m) {
-  if (!m.alive) return;
-  enemyMissiles.detonate(m, 0.8);
-  if (game.mp) net.sendEvent({ k: 'emx', id: m.id });
-  const pts = 50;
-  game.score += pts;
-  hud.hitmarker(true);
-  audio.hitConfirm();
-  hud.project(m.pos, camera, scr);
-  hud.popup(scr.onScreen ? scr.x : innerWidth / 2, scr.onScreen ? scr.y : innerHeight * 0.36, `+${pts}`, 'MISSILE SHOT DOWN');
-}
-
 // The dreadnought goes up in a chain of blasts along its hull.
 const bossBlasts = [];
 function bossDeathFx(e) {
@@ -833,6 +816,10 @@ function updateBossBlasts(dt) {
 const station = new Station(scene);
 const wrecks = new WreckSystem(scene, particles);
 const dockAssist = new DockAssist(station, MAIN_THRUST);
+// With a dreadnought on the field, B flies you to a parking spot on its orbit instead
+const BOSS_STANDOFF = 600;
+const bossPark = new TrailPoint();
+const liveBoss = () => game.enemies.find((e) => e.alive && e.def.boss && e.orbitR) || null;
 
 wrecks.onCollect = (w, by) => {
   // guests ask the host (it makes sure each wreck is only salvaged once); host/solo credit directly
@@ -852,12 +839,39 @@ function toggleDockAssist() {
   if (player.docked || player.docking || !player.alive) return;
   if (dockAssist.active) {
     dockAssist.disengage();
-    hud.notice('DOCKING ASSIST OFF', 'dim');
+    hud.notice(dockAssist.station === bossPark ? 'INTERCEPT OFF' : 'DOCKING ASSIST OFF', 'dim');
+    return;
+  }
+  const boss = liveBoss();
+  if (boss) {
+    bossPark.follow(boss, BOSS_STANDOFF);
+    dockAssist.station = bossPark;
+    dockAssist.stopAt = 0;
   } else {
-    dockAssist.engage();
-    audio.beep(880, 0.08, 0.05, 'sine');
-    setTimeout(() => audio.beep(1320, 0.1, 0.05, 'sine'), 80);
-    hud.notice('DOCKING ASSIST ENGAGED · ANY THRUST KEY TO CANCEL', 'green');
+    dockAssist.station = station;
+    dockAssist.stopAt = 120;
+  }
+  dockAssist.engage();
+  audio.beep(880, 0.08, 0.05, 'sine');
+  setTimeout(() => audio.beep(1320, 0.1, 0.05, 'sine'), 80);
+  hud.notice(boss ? `INTERCEPT ENGAGED · PARKING ${BOSS_STANDOFF} m BEHIND THE DREADNOUGHT · THRUST TO CANCEL` : 'DOCKING ASSIST ENGAGED · ANY THRUST KEY TO CANCEL', boss ? 'orange' : 'green');
+}
+
+/** Boss intercept: keep the parking spot moving with the fortress, and let go once we're there. */
+function updateBossPark() {
+  if (!dockAssist.active || dockAssist.station !== bossPark) return;
+  if (!bossPark.body || !bossPark.body.alive) {
+    dockAssist.disengage();
+    hud.notice('INTERCEPT OFF · TARGET DESTROYED', 'dim');
+    return;
+  }
+  bossPark.update();
+  const d = player.pos.distanceTo(bossPark.pos);
+  const rel = _v1.subVectors(player.vel, bossPark.vel).length();
+  if (d < 90 && rel < 6) {
+    dockAssist.disengage();
+    hud.notice(`HOLDING ${Math.round(player.pos.distanceTo(bossPark.body.pos))} m FROM THE DREADNOUGHT · YOU HAVE CONTROL`, 'green');
+    audio.beep(1320, 0.1, 0.05, 'sine');
   }
 }
 
@@ -1059,7 +1073,6 @@ function clearWorld() {
   playerBolts.clear();
   enemyBolts.clear();
   missiles.clear();
-  enemyMissiles.clear();
   bossBlasts.length = 0;
   wrecks.clear();
   allyBolts.clear();
@@ -1088,6 +1101,7 @@ function startGame(opts = {}) {
   const multiplayer = !!opts.multiplayer;
   Object.assign(game, {
     mp: multiplayer,
+    debug: !!opts.debug,
     difficulty: validDifficulty(multiplayer ? mp.difficulty : difficulty),
     // in multiplayer the host runs the waves; guests follow its clock
     score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 8 : 4, waveActive: false,
@@ -1110,7 +1124,6 @@ function startGame(opts = {}) {
   const sinceEpoch = multiplayer ? Math.max(0, net.netTime() - mp.epoch) : 0;
   setStartPose(Math.PI * 0.25 + (multiplayer ? net.myId * MP_SPAWN_GAP : 0) + orbitRate * sinceEpoch);
   resetEnemyIds();
-  game.missileSeq = 0;
   game.bumpCd = 0;
   game.clearHold = 0;
   mp.deadIds.clear();
@@ -1181,20 +1194,20 @@ function showGameOver() {
   leaveMultiplayer();
   state = 'gameover';
   best = store.get(bestKey(game.difficulty), 0);
-  if (game.score > best) { best = game.score; store.set(bestKey(game.difficulty), best); }
+  if (game.score > best && !game.debug) { best = game.score; store.set(bestKey(game.difficulty), best); }
   document.getElementById('go-cause').textContent = game.deathCause;
   document.getElementById('go-score').textContent = game.score.toLocaleString();
   document.getElementById('go-wave').textContent = game.wave;
   document.getElementById('go-kills').textContent = game.kills;
   const dn = diffDef().name;
-  document.getElementById('go-best').textContent = game.score >= best && game.score > 0 ? `★ NEW ${dn} BEST ★` : `${dn} BEST ${best.toLocaleString()}`;
+  document.getElementById('go-best').textContent = game.debug ? 'DEBUG RUN · NOT SCORED'
+    : game.score >= best && game.score > 0 ? `★ NEW ${dn} BEST ★` : `${dn} BEST ${best.toLocaleString()}`;
   hud.show(false);
   hud.hideMarkers();
   for (const e of game.enemies) if (e.alive) e.destroy();
   game.enemies.length = 0;
   playerBolts.clear();
   enemyBolts.clear();
-  enemyMissiles.clear();
   bossBlasts.length = 0;
   shipParts.group.visible = false;
   for (const t of playerTrails) t.mesh.visible = false;
@@ -1255,6 +1268,7 @@ function updatePlayerControl(dt) {
     dockAssist.disengage();
     hud.notice('DOCKING ASSIST OFF · MANUAL OVERRIDE', 'dim');
   }
+  updateBossPark();
   const ap = dockAssist.active ? dockAssist.update(dt, player) : null;
   if (ap) { player.pendingYaw = 0; player.pendingPitch = 0; }
   if (ap && ap.has) {
@@ -1427,12 +1441,10 @@ function physicsStep(h) {
 
   playerBolts.step(h, collectBoltTargets(), (tg, point, dmg) => {
     if (tg.isTurret) hitTurret(tg.owner, tg.index, dmg, point, 'player');
-    else if (tg.isMissile) shootDownMissile(tg);
     else if (tg.isHull) hitEnemy(tg.owner, dmg, point, 'player');
     else hitEnemy(tg, dmg, point, 'player');
   });
   missiles.physics(h);
-  enemyMissiles.physics(h);
   game.bumpCd = Math.max(0, game.bumpCd - h);
 
   playerTarget.alive = player.alive;
@@ -1472,12 +1484,11 @@ function physicsStep(h) {
 }
 
 // What the player's cannons can hit: turrets first (they sit on the hull's
-// surface), then missiles, then hulls (the dreadnought's as a chain of spheres).
+// surface), then hulls (the dreadnought's as a chain of spheres).
 const boltTargets = [];
 function collectBoltTargets() {
   boltTargets.length = 0;
   for (const e of game.enemies) if (e.alive && e.turrets) for (const t of e.turrets) if (t.alive) boltTargets.push(t);
-  for (const m of enemyMissiles.list) if (m.alive) boltTargets.push(m);
   for (const e of game.enemies) {
     if (!e.alive) continue;
     if (e.hitParts) for (const p of e.hitParts) boltTargets.push(p);
@@ -1491,9 +1502,6 @@ function updateBossHud() {
   const boss = game.enemies.find((e) => e.alive && e.def.boss);
   hud.setBoss(boss ? { hp: boss.hp, maxHp: boss.maxHp, turrets: boss.turretsAlive, total: boss.turrets.length } : null);
   threatItems.length = 0;
-  for (const m of enemyMissiles.list) {
-    if (m.alive) threatItems.push({ pos: m.pos, kind: m.targetId === net.myId && !m.lost && m.burning ? 'missile me' : 'missile' });
-  }
   if (boss && boss.pos.distanceTo(player.pos) < 1100) {
     for (const t of boss.turrets) if (t.alive) threatItems.push({ pos: t.pos, kind: 'turret' });
   }
@@ -1816,7 +1824,6 @@ function tick(rawDt, render) {
     else for (const t of playerTrails) t.update(dt, player.pos, camera.position, Math.max(0, 0.5 - game.deathTimer));
     for (const e of game.enemies) e.updateVisual(dt, camera.position, visualTime);
     missiles.update(dt, camera.position, visualTime);
-    enemyMissiles.update(dt, camera.position, visualTime);
     updateBossBlasts(dt);
     particles.update(dt);
     updateEffects(dt);
@@ -1848,12 +1855,6 @@ function tick(rawDt, render) {
       if (player.hull < 30) warnings.push({ text: 'HULL CRITICAL', color: 'red' });
       let seekerNear = false;
       for (const e of game.enemies) if (e.type === 'seeker' && e.pos.distanceTo(player.pos) < 140) seekerNear = true;
-      const threat = player.alive ? enemyMissiles.threat(net.myId, player.pos) : null;
-      if (threat) {
-        warnings.unshift({ text: `⚠ MISSILE INBOUND · ${Math.round(threat.dist)} m`, color: 'red' });
-        game.missileBeep -= dt;
-        if (game.missileBeep <= 0) { audio.beep(1700, 0.05, 0.06, 'square'); game.missileBeep = THREE.MathUtils.clamp(threat.dist / 1500, 0.1, 0.6); }
-      }
       if (seekerNear) {
         warnings.push({ text: 'PROXIMITY ALERT — SEEKER', color: 'orange' });
         game.proximityBeep -= dt;
@@ -1872,8 +1873,8 @@ function tick(rawDt, render) {
       hud.updateAllies(game.mp ? remotes.values() : NO_TARGETS, camera, player.pos);
       hud.setLink(game.mp ? net.rtt : null);
       hud.setAutopilot(dockAssist.active ? {
-        mode: dockAssist.mode, dist: station.pos.distanceTo(player.pos), rel: station.relativeSpeed(player),
-        eta: dockAssist.eta, burning: player.throttle > 0.1,
+        mode: dockAssist.mode, dist: dockAssist.station.pos.distanceTo(player.pos), rel: _v1.subVectors(player.vel, dockAssist.station.vel).length(),
+        eta: dockAssist.eta, burning: player.throttle > 0.1, intercept: dockAssist.station === bossPark,
       } : null);
       if (player.docked) stationUI.render();
       hud.setScore(game.score, game.wave, game.mult, game.enemies.length + game.spawnQueue.length);
@@ -1927,7 +1928,7 @@ function tick(rawDt, render) {
 // ===========================================================================
 // Menus
 // ===========================================================================
-const overlays = ['menu', 'controls', 'pause', 'gameover', 'lobby'];
+const overlays = ['menu', 'controls', 'pause', 'gameover', 'lobby', 'debug'];
 function setOverlay(name) {
   for (const o of overlays) document.getElementById(o).classList.toggle('hidden', o !== name);
 }
@@ -1951,6 +1952,84 @@ function launch() {
 }
 
 bind('btn-play', launch);
+
+// ---------------------------------------------------------------------------
+// Debug launch (solo): pick the starting wave, upgrade levels and scrap
+// ---------------------------------------------------------------------------
+const debugSetup = (() => {
+  const saved = store.get('eh_debug', {}) || {};
+  const levels = newUpgradeLevels();
+  for (const u of UPGRADES) levels[u.id] = THREE.MathUtils.clamp(Math.round((saved.levels || {})[u.id] || 0), 0, u.costs.length);
+  return {
+    wave: THREE.MathUtils.clamp(Math.round(saved.wave || BOSS_EVERY), 1, 30),
+    scrap: THREE.MathUtils.clamp(Math.round(saved.scrap || 0), 0, 2000),
+    levels,
+  };
+})();
+const debugRows = [
+  { key: 'wave', name: 'START WAVE', min: 1, max: 30, step: 1 },
+  ...UPGRADES.map((u) => ({ key: u.id, name: u.name, desc: u.desc, min: 0, max: u.costs.length, step: 1, upgrade: true })),
+  { key: 'scrap', name: 'STARTING SCRAP', min: 0, max: 2000, step: 50 },
+];
+const dbgValue = (r) => (r.upgrade ? debugSetup.levels[r.key] : debugSetup[r.key]);
+function renderDebug() {
+  document.getElementById('dbg-rows').innerHTML = debugRows.map((r) => {
+    const v = dbgValue(r);
+    const shown = r.upgrade ? `${v} / ${r.max}` : v;
+    const sub = r.key === 'wave' ? (isBossWave(v) ? 'DREADNOUGHT WAVE' : `next boss: wave ${Math.ceil(v / BOSS_EVERY) * BOSS_EVERY}`) : (r.desc || '');
+    return `<div class="dbg-row"><div class="dbg-name">${r.name}<small>${sub}</small></div><div class="dbg-step">`
+      + `<button data-key="${r.key}" data-d="-1" ${v <= r.min ? 'disabled' : ''}>−</button><b>${shown}</b>`
+      + `<button data-key="${r.key}" data-d="1" ${v >= r.max ? 'disabled' : ''}>+</button></div></div>`;
+  }).join('');
+  const w = debugSetup.wave;
+  document.getElementById('dbg-note').textContent = `${DIFFICULTIES[difficulty].name} · WAVE ${w}${isBossWave(w) ? ' · DREADNOUGHT' : ''} · ${DIFFICULTIES[difficulty].missiles + debugSetup.levels.missileCap} MISSILES`;
+  store.set('eh_debug', debugSetup);
+}
+document.getElementById('dbg-rows').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-key]');
+  if (!b || b.disabled) return;
+  e.stopPropagation();
+  const r = debugRows.find((x) => x.key === b.dataset.key);
+  const v = THREE.MathUtils.clamp(dbgValue(r) + Number(b.dataset.d) * r.step, r.min, r.max);
+  if (r.upgrade) debugSetup.levels[r.key] = v; else debugSetup[r.key] = v;
+  audio.init(); audio.uiClick();
+  renderDebug();
+});
+for (const chip of document.querySelectorAll('.dbg-chip')) {
+  chip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    audio.init(); audio.uiClick();
+    const p = chip.dataset.preset;
+    if (p === 'boss') debugSetup.wave = BOSS_EVERY;
+    for (const u of UPGRADES) {
+      if (p === 'max') debugSetup.levels[u.id] = u.costs.length;
+      if (p === 'reset') debugSetup.levels[u.id] = 0;
+    }
+    if (p === 'reset') { debugSetup.wave = 1; debugSetup.scrap = 0; }
+    renderDebug();
+  });
+}
+function launchDebug() {
+  audio.init();
+  const fade = document.getElementById('fade');
+  fade.classList.add('on');
+  requestLock();
+  setTimeout(() => {
+    startGame({ debug: true });
+    game.levels = { ...newUpgradeLevels(), ...debugSetup.levels };
+    applyUpgrades();
+    missiles.ammo = missiles.capacity;
+    player.hull = player.maxHull;
+    game.scrap = debugSetup.scrap;
+    game.wave = debugSetup.wave - 1;   // the next wave to launch is the one picked
+    game.waveTimer = 4;
+    hud.notice(`DEBUG · WAVE ${debugSetup.wave} IN 4 s`, 'orange');
+    fade.classList.remove('on');
+  }, 450);
+}
+bind('btn-debug', () => { renderDebug(); setOverlay('debug'); });
+bind('btn-dbg-launch', launchDebug);
+bind('btn-dbg-back', () => setOverlay('menu'));
 bind('btn-controls', () => { controlsReturn = 'menu'; setOverlay('controls'); });
 bind('btn-back', () => setOverlay(controlsReturn));
 bind('btn-quality', () => {
@@ -2503,8 +2582,8 @@ net.on('kill', (m) => {
   if (!isGuest()) return;
   mp.deadIds.add(m.id);
   const e = game.enemies.find((x) => x.netId === m.id && x.alive);
-  if (e) { e.pos.fromArray(m.p); e.vel.fromArray(m.v); killEnemy(e, m.cause, m.by, true); }
-  else if (m.cause === 'player' || m.cause === 'ram' || m.cause === 'missile') {
+  if (e) { e.pos.fromArray(m.p); e.vel.fromArray(m.v); e.noWreck = !!m.nw; killEnemy(e, m.cause, m.by, true); }
+  else if (!m.nw && (m.cause === 'player' || m.cause === 'ram' || m.cause === 'missile')) {
     wrecks.spawn({ netId: m.id, type: ENEMY_TYPES[m.y] || 'raider', pos: new THREE.Vector3().fromArray(m.p), vel: new THREE.Vector3().fromArray(m.v) });
   }
 });
@@ -2514,14 +2593,6 @@ net.on('tkill', (m) => {             // a dreadnought turret was destroyed
   const e = game.enemies.find((x) => x.netId === m.id && x.alive);
   if (e) destroyTurret(e, m.tu, m.by);
 });
-net.on('em', (m) => {                // the dreadnought launched a missile
-  if (!isGuest()) return;
-  const late = Math.max(net.netTime() - m.t, 0);
-  _v1.fromArray(m.p); _v2.fromArray(m.v);
-  enemyMissiles.spawn({ id: m.id, pos: _v1, vel: _v2, targetId: m.tg, late });
-  missileLaunchFx(_v1, _v2, m.tg);
-});
-net.on('emx', (m) => { if (game.mp) enemyMissiles.removeById(m.id); });   // hit someone / shot down
 net.on('revived', (m) => { if (isGuest()) onRevived(m.id, m.by); });
 net.on('wipe', () => { if (isGuest()) endRunWiped(); });
 
@@ -2782,7 +2853,7 @@ frame();
 
 // debug handle
 window.__eh = {
-  enemyMissiles, collectBoltTargets,
+  collectBoltTargets,
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,

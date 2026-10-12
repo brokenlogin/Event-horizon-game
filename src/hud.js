@@ -231,7 +231,7 @@ export class HUD {
     if (el.turrets.textContent !== txt) el.turrets.textContent = txt;
   }
 
-  /** Small markers for dreadnought missiles and turrets. items: [{ pos, kind: 'missile' | 'missile me' | 'turret' }] */
+  /** Small markers on the dreadnought's turrets. items: [{ pos, kind: 'turret' }] */
   updateThreats(items, camera, playerPos) {
     const pool = this.threatPool || (this.threatPool = []);
     const s = this._tp || (this._tp = {});
@@ -261,8 +261,8 @@ export class HUD {
   setAutopilot(s) {
     const el = this.el.autopilot || (this.el.autopilot = document.getElementById('autopilot'));
     if (!s) { el.style.display = 'none'; return; }
-    const phase = s.mode === 'terminal' ? 'FINAL APPROACH' : (s.burning ? 'TRANSFER BURN' : 'COASTING TO INTERCEPT');
-    const html = `DOCKING ASSIST · ${phase}<small>${s.dist.toFixed(0)} m · Δv ${s.rel.toFixed(0)} m/s · ETA ~${Math.max(1, Math.round(s.eta))} s · [B] OFF</small>`;
+    const phase = s.mode === 'terminal' ? (s.intercept ? 'MATCHING ORBIT' : 'FINAL APPROACH') : (s.burning ? 'TRANSFER BURN' : 'COASTING TO INTERCEPT');
+    const html = `${s.intercept ? 'DREADNOUGHT INTERCEPT' : 'DOCKING ASSIST'} · ${phase}<small>${s.dist.toFixed(0)} m · Δv ${s.rel.toFixed(0)} m/s · ETA ~${Math.max(1, Math.round(s.eta))} s · [B] OFF</small>`;
     if (el._html !== html) { el.innerHTML = html; el._html = html; }
     el.style.display = 'block';
   }

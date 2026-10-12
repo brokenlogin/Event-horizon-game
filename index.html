@@ -147,6 +147,7 @@
         <button id="btn-multi" class="btn">MULTIPLAYER</button>
         <button id="btn-controls" class="btn">FLIGHT MANUAL</button>
         <button id="btn-quality" class="btn small">GRAPHICS: HIGH</button>
+        <button id="btn-debug" class="btn small">DEBUG LAUNCH</button>
       </div>
       <div id="best" class="best"></div>
     </div>
@@ -166,7 +167,7 @@
         <div><kbd>LMB</kbd></div><div>Fire twin cannons</div>
         <div><kbd>E</kbd></div><div>Start missile lock (keep the target in your sights) — aim at a wreck to lock it for salvage</div>
         <div><kbd>Q</kbd></div><div>Fire homing missile once locked — 2 per wave (3 on Easy, 1 on Hard)</div>
-        <div><kbd>B</kbd></div><div>Docking assist — autopilot flies you to the station</div>
+        <div><kbd>B</kbd></div><div>Docking assist — autopilot flies you to the station (during a Dreadnought fight: parks you 600 m behind it on its orbit)</div>
         <div><kbd>F</kbd></div><div>Undock from the station</div>
         <div><kbd>N</kbd></div><div>Call the next wave early</div>
         <div><kbd>ESC</kbd></div><div>Pause</div>
@@ -180,7 +181,7 @@
         <p><b class="c">Difficulty:</b> <b class="c">Easy</b> — enemies deal 35% less damage and you carry 3 missiles. <b>Normal</b> — 2 missiles. <b class="o">Hard</b> — enemies deal 30% more damage and you carry just 1 missile. In multiplayer the host picks it in the waiting room.</p>
         <p>The cyan line is your predicted path. If it turns <b class="r">red</b> and ends at the hole, burn prograde now.</p>
         <p><b class="o">Missiles:</b> press E with a hostile near your crosshair and hold it there until the lock completes, then press Q. They burn for 4 seconds, then fall ballistic and self-destruct — fire inside 1000 m.</p>
-        <p><b class="r">Dreadnought:</b> every fifth wave an enemy fortress takes up a low orbit (about 1350 m) with a lighter escort. It has a lot of armour, six turrets that each cover one side of the hull, and a launcher that fires homing missiles at the nearest pilot. Knock out the turrets to blunt it. Missiles can be shot down, and putting the hole between you and one breaks its lock for good. Its hulk is worth 150 scrap.</p>
+        <p><b class="r">Dreadnought:</b> every fifth wave an enemy fortress takes up a low orbit (about 1350 m) with a lighter escort. It has a lot of armour, six turrets that each cover one side of the hull, and a launcher in its prow that sends out seeker drones. Knock out the turrets to blunt it. Press <b class="c">B</b> to have the autopilot park you 600 m behind it on the same orbit. Missiles lock onto it from 2000 m. Its hulk is worth 150 scrap.</p>
         <p>Kills made while you are within 750 m of the singularity score <b class="o">DANGER CLOSE ×2</b>. Chain kills to build your multiplier.</p>
       </div>
       <div class="settings">
@@ -220,6 +221,22 @@
       </div>
       <div id="lobby-status" class="lobby-status"></div>
       <button id="btn-lobby-back" class="btn small">BACK</button>
+    </div>
+  </div>
+
+  <div id="debug" class="overlay hidden">
+    <div class="card center debug-card">
+      <h2>DEBUG LAUNCH</h2>
+      <div class="lobby-sub">Start at any wave with any upgrades. Runs launched from here don't count toward your best score.</div>
+      <div id="dbg-rows" class="dbg-rows"></div>
+      <div class="dbg-quick">
+        <button class="dbg-chip" data-preset="boss">WAVE 5 BOSS</button>
+        <button class="dbg-chip" data-preset="max">MAX UPGRADES</button>
+        <button class="dbg-chip" data-preset="reset">RESET</button>
+      </div>
+      <div id="dbg-note" class="dbg-note"></div>
+      <button id="btn-dbg-launch" class="btn primary">LAUNCH</button>
+      <button id="btn-dbg-back" class="btn small">BACK</button>
     </div>
   </div>
 

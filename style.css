@@ -394,8 +394,21 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .bb-track i { display: block; height: 100%; background: linear-gradient(90deg, #ff2a3c, #ff7a5a); transform-origin: left; box-shadow: 0 0 10px #ff2a3c; transition: transform 0.15s; }
 .threat-mark { position: absolute; transform: translate(-50%, -50%); pointer-events: none; font-family: var(--font-display); font-size: 9px; letter-spacing: 1px; white-space: nowrap; text-align: center; color: #ff6a6a; }
 .threat-mark i { display: block; margin: 0 auto 3px; }
-.threat-mark.missile i { width: 9px; height: 9px; border: 1.5px solid currentColor; transform: rotate(45deg); }
-.threat-mark.missile.me { color: #ff2a3c; }
-.threat-mark.missile.me i { width: 14px; height: 14px; border-width: 2px; filter: drop-shadow(0 0 4px currentColor); animation: blink 0.4s steps(2) infinite; }
 .threat-mark.turret i { width: 12px; height: 12px; border: 1.5px solid currentColor; border-radius: 50%; opacity: 0.8; }
 .threat-mark.turret { color: #ff8a7a; }
+
+/* debug launch */
+.debug-card { max-width: 560px; gap: 10px !important; padding-top: 26px; padding-bottom: 26px; }
+.dbg-rows { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.dbg-row { display: flex; align-items: center; gap: 12px; padding: 5px 12px; border: 1px solid var(--cyan-faint); background: rgba(5, 20, 32, 0.45); }
+.dbg-row .dbg-name { flex: 1; text-align: left; font-family: var(--font-display); font-size: 12px; letter-spacing: 3px; color: #d9f6ff; }
+.dbg-row .dbg-name small { display: block; font-family: inherit; font-size: 9px; letter-spacing: 2px; color: rgba(217, 246, 255, 0.5); margin-top: 3px; }
+.dbg-step { display: flex; align-items: center; gap: 8px; }
+.dbg-step button, .dbg-chip { pointer-events: auto; cursor: pointer; font-family: var(--font-display); font-weight: 700; color: var(--cyan); background: rgba(5, 20, 32, 0.6); border: 1px solid var(--cyan-dim); transition: background 0.15s, color 0.15s; }
+.dbg-step button { width: 30px; height: 30px; font-size: 16px; }
+.dbg-step button:hover:not(:disabled), .dbg-chip:hover { background: var(--cyan); color: #001018; }
+.dbg-step button:disabled { opacity: 0.3; cursor: default; }
+.dbg-step b { min-width: 56px; text-align: center; font-family: var(--font-display); font-size: 16px; color: #fff; }
+.dbg-quick { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.dbg-chip { font-size: 11px; letter-spacing: 3px; padding: 8px 14px; }
+.dbg-note { min-height: 1.2em; font-family: var(--font-display); font-size: 12px; letter-spacing: 3px; color: var(--orange); }

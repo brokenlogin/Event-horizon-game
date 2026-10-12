@@ -18,13 +18,13 @@ export const ENEMY_DEFS = {
     hp: 2, accel: 38, turn: 4.0, engageRange: 1200, preferred: 0, approach: 70,
     fireRange: 0, ramDamage: 34, score: 150, trailColor: 0xffb030, build: buildSeeker,
   },
-  // boss: an orbital fortress that holds one low orbit, defended by six turrets and a missile launcher
+  // boss: an orbital fortress that holds one low orbit, defended by six turrets and a seeker launcher
   dread: {
     boss: true, hp: 200, accel: 14, turn: 0.25, score: 3000, trailColor: 0xff2a3c, build: buildDreadnought,
     turret: {
       hp: 10, range: 800, boltSpeed: 240, burst: 3, burstGap: 0.12, cooldown: [2.0, 3.0], dmg: 6, aimError: 6, turn: 1.5, score: 250,
     },
-    missileCooldown: [6.5, 8.5], missileRange: 1500,
+    launchCooldown: [6.5, 8.5], launchRange: 1500,
   },
 };
 
@@ -93,14 +93,14 @@ export class Enemy {
   }
 
   // -------------------------------------------------------------------------
-  // Boss: station-keeping on a circular orbit, independent turrets, missiles
+  // Boss: station-keeping on a circular orbit, independent turrets, seeker launches
   // -------------------------------------------------------------------------
   _initBoss() {
     const td = this.def.turret;
     this.orbitR = 1350;
     this.orbitN = new THREE.Vector3(0, 1, 0);
     this.orbitV = circularSpeed(this.orbitR);
-    this.missileTimer = 5;
+    this.launchTimer = 5;
     this.launcherIdx = 0;
     this.turrets = this.built.turrets.map((b, i) => ({
       ...b, index: i, owner: this, isTurret: true,
@@ -176,16 +176,15 @@ export class Enemy {
     this.updateTurretPositions();
     this.aimTurrets(dt, game, true);
 
-    // missile launcher: one at a time at the nearest pilot in range
-    this.missileTimer -= dt;
-    if (this.missileTimer <= 0 && this.age > 4) {
+    // seeker launcher: sends a drone out whenever a pilot is in range and in sight
+    this.launchTimer -= dt;
+    if (this.launchTimer <= 0 && this.age > 4) {
       const target = game.nearestPilot(this.pos);
-      const ok = target && target.alive && target.pos.distanceTo(this.pos) < def.missileRange && !occludedByHole(this.pos, target.pos, 1.6);
-      if (ok) {
-        game.bossMissile(this, this.launcherIdx++ % this.built.launchers.length, target);
-        const [a, b] = def.missileCooldown;
-        this.missileTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);
-      } else this.missileTimer = 1;
+      const ok = target && target.alive && target.pos.distanceTo(this.pos) < def.launchRange && !occludedByHole(this.pos, target.pos, 1.6);
+      if (ok && game.bossLaunch(this, this.launcherIdx++ % this.built.launchers.length)) {
+        const [a, b] = def.launchCooldown;
+        this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);
+      } else this.launchTimer = ok ? 2 : 1;
     }
   }
 

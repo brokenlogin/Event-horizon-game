@@ -33,6 +33,17 @@ const DRONE_BURN = 8;
 const DRONE_LIFE = 11;
 const GRAB_RANGE = 22;                         // plus the wreck's radius
 const DRONE_HOP_RANGE = 1500;
+// big targets (the dreadnought): lock from twice as far, and anywhere on the hull counts
+const BIG_LOCK_RANGE_MULT = 2;
+const BIG_LOCK_RADIUS = 40;          // m, roughly the fortress's half-length
+const lockRangeFor = (t, base) => (t.def && t.def.boss ? base * BIG_LOCK_RANGE_MULT : base);
+/** cos of the angle from the crosshair to the nearest part of the target (its centre, or hull for big ones) */
+function aimDot(t, toDir, fwd, d) {
+  const dot = toDir.dot(fwd);
+  if (!(t.def && t.def.boss)) return dot;
+  const ang = Math.max(0, Math.acos(Math.min(1, dot)) - Math.atan(BIG_LOCK_RADIUS / Math.max(d, 1)));
+  return Math.cos(ang);
+}
 
 const _to = new THREE.Vector3();
 const _rel = new THREE.Vector3();
@@ -130,8 +141,8 @@ export class MissileSystem {
       if (!e.alive) continue;
       _to.subVectors(e.pos, player.pos);
       const d = _to.length();
-      if (d > range || (!ignoreHole && occludedByHole(player.pos, e.pos, 1.6))) continue;
-      const dot = _to.divideScalar(d).dot(fwd);
+      if (d > lockRangeFor(e, range) || (!ignoreHole && occludedByHole(player.pos, e.pos, 1.6))) continue;
+      const dot = aimDot(e, _to.divideScalar(d), fwd, d);
       if (dot > bestDot) { bestDot = dot; best = e; }
     }
     return best;
@@ -150,8 +161,8 @@ export class MissileSystem {
       thrust: new THREE.Vector3(),
       quat: player.quat.clone(),
       age: 0, alive: true, burning: true, salvage,
-      burnTime: salvage ? DRONE_BURN : BURN_TIME,
-      maxLife: salvage ? DRONE_LIFE : MAX_LIFE,
+      burnTime: salvage ? DRONE_BURN : target.def && target.def.boss ? BURN_TIME * 1.5 : BURN_TIME,
+      maxLife: salvage ? DRONE_LIFE : target.def && target.def.boss ? MAX_LIFE * 1.5 : MAX_LIFE,
       trail: new Trail(scene, { segments: 70, width: 0.28, color: 0xffc890, interval: 0.025, fadeNear: 10 }),
     };
     m.trail.reset(pos);
@@ -176,8 +187,8 @@ export class MissileSystem {
         _to.subVectors(t.pos, player.pos);
         const d = _to.length();
         const fwd = _fwd.set(0, 0, -1).applyQuaternion(player.quat);
-        const range = this.lockKind === 'salvage' ? SALVAGE_RANGE : LOCK_RANGE;
-        ok = d < range * 1.15 && _to.divideScalar(d).dot(fwd) > HOLD_CONE && !occludedByHole(player.pos, t.pos, 1.6);
+        const range = this.lockKind === 'salvage' ? SALVAGE_RANGE : lockRangeFor(t, LOCK_RANGE);
+        ok = d < range * 1.15 && aimDot(t, _to.divideScalar(d), fwd, d) > HOLD_CONE && !occludedByHole(player.pos, t.pos, 1.6);
       }
       if (!ok) {
         this.cancelLock(true);

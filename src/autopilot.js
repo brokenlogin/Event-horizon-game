@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { integrate, accelAt } from './physics.js';
+import { integrate, accelAt, circularSpeed } from './physics.js';
 
 // ---------------------------------------------------------------------------
 // Docking assist (B). A small model-predictive autopilot:
@@ -38,9 +38,45 @@ const _rel = new THREE.Vector3();
 const _g = new THREE.Vector3();
 const _sa = new THREE.Vector3();
 
+/**
+ * A point that rides a circular orbit a fixed distance behind a body on that
+ * orbit (used to park near the dreadnought). Same interface the assist uses
+ * for the station: pos, vel, stateAt(dt, pos, vel), accel(out).
+ */
+export class TrailPoint {
+  constructor() {
+    this.pos = new THREE.Vector3();
+    this.vel = new THREE.Vector3();
+    this.body = null;
+    this.normal = new THREE.Vector3(0, 1, 0);
+    this.lag = 0;            // radians behind the body
+    this.omega = 0;
+  }
+
+  /** Follow `body` (with orbitR / orbitN) at `standoff` metres behind it. */
+  follow(body, standoff) {
+    this.body = body;
+    this.normal.copy(body.orbitN);
+    this.omega = circularSpeed(body.orbitR) / body.orbitR;
+    this.lag = standoff / body.orbitR;
+    this.stateAt(0, this.pos, this.vel);
+  }
+
+  stateAt(dt, pos, vel) {
+    const a = this.omega * dt - this.lag;
+    pos.copy(this.body.pos).applyAxisAngle(this.normal, a);
+    vel.copy(this.body.vel).applyAxisAngle(this.normal, a);
+  }
+
+  update() { if (this.body) this.stateAt(0, this.pos, this.vel); }
+
+  accel(out) { return out.copy(this.pos).multiplyScalar(-this.omega * this.omega); }
+}
+
 export class DockAssist {
   constructor(station, maxAccel) {
-    this.station = station;
+    this.station = station;           // the current target (the station, or a TrailPoint)
+    this.stopAt = 120;                // m short of the target where the terminal approach settles
     this.maxAccel = maxAccel;
     this.active = false;
     this.mode = 'transfer';
@@ -106,7 +142,7 @@ export class DockAssist {
 
     if (dist < TERMINAL_RANGE) {
       this.mode = 'terminal';
-      const close = Math.min(120, Math.sqrt(2 * 5 * Math.max(dist - 120, 0)));
+      const close = Math.min(120, Math.sqrt(2 * 5 * Math.max(dist - this.stopAt, 0)));
       _d.divideScalar(Math.max(dist, 1e-3)).multiplyScalar(close);
       accelAt(player.pos, _g);
       st.accel(_sa);
