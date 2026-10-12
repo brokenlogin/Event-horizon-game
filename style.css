@@ -362,3 +362,23 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .sp-info .ok { color: #6dff9a; }
 .sp-watch { font-family: var(--font-display); font-size: 11px; letter-spacing: 3px; color: rgba(217, 246, 255, 0.6); margin-top: 10px; }
 .sp-watch b { color: #ffad4a; font-weight: 500; }
+
+/* difficulty picker (menu + waiting room) */
+.diff-picker { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.diff-label { font-family: var(--font-display); font-size: 11px; letter-spacing: 4px; color: rgba(217, 246, 255, 0.55); }
+.diff-opts { display: flex; gap: 6px; }
+.diff-opts button {
+  pointer-events: auto; cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: 12px; letter-spacing: 3px;
+  color: rgba(217, 246, 255, 0.6); background: rgba(5, 20, 32, 0.55);
+  border: 1px solid var(--cyan-faint); padding: 9px 0; width: 92px; text-align: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.diff-opts button:hover:not(:disabled) { color: #fff; border-color: var(--cyan-dim); }
+.diff-opts button.on { color: #001018; background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 18px rgba(94, 242, 255, 0.45); }
+.diff-opts button[data-diff="easy"].on { background: #6dffa8; border-color: #6dffa8; box-shadow: 0 0 18px rgba(109, 255, 168, 0.45); }
+.diff-opts button[data-diff="hard"].on { background: var(--orange); border-color: var(--orange); box-shadow: 0 0 18px rgba(255, 173, 74, 0.5); }
+.diff-opts button:disabled { cursor: default; }
+.diff-opts button:disabled:not(.on) { opacity: 0.35; }
+.diff-desc { font-size: 13px; letter-spacing: 1.5px; color: rgba(217, 246, 255, 0.55); min-height: 1.2em; }
+.lobby-diff { align-items: center; margin: 6px 0 2px; }

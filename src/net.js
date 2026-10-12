@@ -13,7 +13,7 @@
 // NTP-style pings (best-of recent samples), so netTime() is shared.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL = 3;
+export const PROTOCOL = 4;
 export const MAX_PILOTS = 4;
 const PREFIX = 'event-horizon-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O, 1/I

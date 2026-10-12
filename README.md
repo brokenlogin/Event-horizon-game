@@ -12,6 +12,18 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
+## Difficulty
+
+Pick it on the main menu, above LAUNCH:
+
+| | Enemy damage | Missiles per wave |
+|---|---|---|
+| Easy | −35% | 3 |
+| Normal | standard | 2 |
+| Hard | +30% | 1 |
+
+Enemy damage covers their cannon fire, seeker rams and collisions with enemy ships. The black hole's tides and the accretion disk hurt the same on every setting. Each difficulty keeps its own best score. In multiplayer the host picks the difficulty in the waiting room and everyone flies with it.
+
 ## Multiplayer (up to 4 pilots)
 
 Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's remembered). One player clicks **HOST A GAME** and shares the 5-letter room code; the others type it and press **JOIN**. Everyone waits in the room's pilot list until the host presses **START**. Once a flight has launched the room is closed to newcomers.
@@ -39,7 +51,7 @@ Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's 
 | Z / C | Roll |
 | Left click | Fire cannons |
 | E | Start a missile lock (keep the target near the crosshair for 1.5 s) |
-| Q | Fire a homing missile once locked (2 per wave, refilled each wave) |
+| Q | Fire a homing missile once locked (2 per wave on Normal, refilled each wave) |
 | B | Docking assist: the autopilot flies the rendezvous (any thrust key cancels) |
 | F | Undock from the station |
 | N | Call the next wave early |

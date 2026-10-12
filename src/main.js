@@ -314,7 +314,18 @@ const game = {
   mp: false,
   enemyFire,
 };
-let best = store.get('eh_best', 0);
+// Difficulty: scales the damage enemies deal and how many missiles you carry.
+const DIFFICULTIES = {
+  easy: { name: 'EASY', dmg: 0.65, missiles: 3, desc: 'Enemies deal 35% less damage · 3 missiles per wave' },
+  normal: { name: 'NORMAL', dmg: 1, missiles: 2, desc: 'Standard damage · 2 missiles per wave' },
+  hard: { name: 'HARD', dmg: 1.3, missiles: 1, desc: 'Enemies deal 30% more damage · 1 missile per wave' },
+};
+const validDifficulty = (d) => (Object.hasOwn(DIFFICULTIES, d) ? d : 'normal');
+let difficulty = validDifficulty(store.get('eh_difficulty', 'normal'));   // what this player picked
+game.difficulty = difficulty;                                              // what the current run uses
+const diffDef = () => DIFFICULTIES[game.difficulty];
+const bestKey = (d) => (d === 'normal' ? 'eh_best' : `eh_best_${d}`);
+let best = store.get(bestKey(difficulty), 0);
 
 const camQuat = new THREE.Quaternion();
 const camOffset = new THREE.Vector3();
@@ -459,7 +470,7 @@ function startWave(n) {
   game.spawnQueue = waveComposition(n);
   game.spawnTimer = 1.2;
   game.waveActive = true;
-  const restocked = missiles.ammo < 2;
+  const restocked = missiles.ammo < missiles.capacity;
   missiles.refill();
   hud.banner(`WAVE ${n}`, `${game.spawnQueue.length} HOSTILE SIGNATURES INBOUND${restocked ? ' · MISSILES REARMED' : ''}`, 2800);
   audio.waveStart();
@@ -652,7 +663,7 @@ function shieldRechargeDelay() { return 2.6 * (1 - 0.12 * game.levels.shieldRege
 
 function applyUpgrades() {
   player.maxHull = BASE_HULL + 25 * game.levels.hull;
-  missiles.capacity = 2 + game.levels.missileCap;
+  missiles.capacity = diffDef().missiles + game.levels.missileCap;
   missiles.speedMult = 1 + 0.3 * game.levels.missileSpeed;
 }
 
@@ -871,6 +882,7 @@ function startGame(opts = {}) {
   const multiplayer = !!opts.multiplayer;
   Object.assign(game, {
     mp: multiplayer,
+    difficulty: validDifficulty(multiplayer ? mp.difficulty : difficulty),
     // in multiplayer the host runs the waves; guests follow its clock
     score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 8 : 4, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
@@ -959,12 +971,14 @@ function toMenu() {
 function showGameOver() {
   leaveMultiplayer();
   state = 'gameover';
-  if (game.score > best) { best = game.score; store.set('eh_best', best); }
+  best = store.get(bestKey(game.difficulty), 0);
+  if (game.score > best) { best = game.score; store.set(bestKey(game.difficulty), best); }
   document.getElementById('go-cause').textContent = game.deathCause;
   document.getElementById('go-score').textContent = game.score.toLocaleString();
   document.getElementById('go-wave').textContent = game.wave;
   document.getElementById('go-kills').textContent = game.kills;
-  document.getElementById('go-best').textContent = game.score >= best && game.score > 0 ? '★ NEW BEST ★' : `BEST ${best.toLocaleString()}`;
+  const dn = diffDef().name;
+  document.getElementById('go-best').textContent = game.score >= best && game.score > 0 ? `★ NEW ${dn} BEST ★` : `${dn} BEST ${best.toLocaleString()}`;
   hud.show(false);
   hud.hideMarkers();
   for (const e of game.enemies) if (e.alive) e.destroy();
@@ -983,7 +997,36 @@ function showGameOver() {
 }
 
 function updateBest() {
-  document.getElementById('best').textContent = best > 0 ? `BEST SCORE  ${best.toLocaleString()}` : '';
+  best = store.get(bestKey(difficulty), 0);
+  document.getElementById('best').textContent = best > 0 ? `${DIFFICULTIES[difficulty].name} BEST  ${best.toLocaleString()}` : '';
+}
+
+// Difficulty pickers: the main menu sets your own choice; in the waiting room
+// the host's choice is the one that flies, and guests just see it.
+function renderDifficulty() {
+  const roomDiff = net.role ? validDifficulty(net.isHost ? difficulty : mp.difficulty) : difficulty;
+  for (const el of document.querySelectorAll('.diff-picker')) {
+    const inLobby = el.id === 'lobby-diff';
+    const d = inLobby ? roomDiff : difficulty;
+    for (const b of el.querySelectorAll('button[data-diff]')) {
+      b.classList.toggle('on', b.dataset.diff === d);
+      b.disabled = inLobby && !net.isHost;
+    }
+    el.querySelector('.diff-desc').textContent = DIFFICULTIES[d].desc + (inLobby && !net.isHost ? ' · set by the host' : '');
+  }
+}
+for (const b of document.querySelectorAll('.diff-picker button[data-diff]')) {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (b.disabled) return;
+    audio.init(); audio.uiClick();
+    difficulty = validDifficulty(b.dataset.diff);
+    store.set('eh_difficulty', difficulty);
+    if (net.isHost) { mp.difficulty = difficulty; broadcastRoster(); }
+    renderDifficulty();
+    updateBest();
+  });
+  b.addEventListener('mouseenter', () => { if (!b.disabled) audio.uiHover(); });
 }
 
 // ===========================================================================
@@ -1178,7 +1221,7 @@ function physicsStep(h) {
   playerTarget.radius = player.radius;
   enemyBolts.step(h, [playerTarget], (t, point, dmg) => {
     sparks(point, player.vel, 14, player.shield > 0 ? 0.4 : 2.0, player.shield > 0 ? 1.2 : 0.6, player.shield > 0 ? 2.4 : 0.2, 22);
-    damagePlayer(dmg, { cause: 'SHOT DOWN' });
+    damagePlayer(dmg * diffDef().dmg, { cause: 'SHOT DOWN' });
   });
 
   // collisions & hazards for enemies
@@ -1196,8 +1239,9 @@ function physicsStep(h) {
     const bump = d < player.radius + e.radius * 0.8;
     if (!seekerHit && !bump) continue;
     // each pilot judges collisions with their own ship; the host decides the enemy's fate
-    if (seekerHit) { damagePlayer(e.def.ramDamage, { cause: 'SEEKER IMPACT' }); game.trauma = 1; }
-    else damagePlayer(30, { cause: 'COLLISION' });
+    const k = diffDef().dmg;
+    if (seekerHit) { damagePlayer(e.def.ramDamage * k, { cause: 'SEEKER IMPACT' }); game.trauma = 1; }
+    else damagePlayer(30 * k, { cause: 'COLLISION' });
     const cause = seekerHit ? 'none' : 'ram';
     if (guest) { e.rammed = true; net.sendEvent({ k: 'ram', id: e.netId, cause }); }
     else killEnemy(e, cause);
@@ -1673,6 +1717,7 @@ const mp = {
   players: new Map(),      // pilot id -> { name, ready }
   reqId: 0, pending: new Map(), deadIds: new Set(),
   spectating: false, spectateId: -1, wipeTimer: 0, reviveBanner: '',
+  difficulty: 'normal',    // the host's pick; every pilot flies with it
 };
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -1958,14 +2003,16 @@ function hostStart() {
   if (!net.isHost || readyGuests() === 0) return;
   net.lockRoom();
   mp.epoch = net.netTime();
-  net.sendEvent({ k: 'start', epoch: mp.epoch });
+  mp.difficulty = difficulty;
+  net.sendEvent({ k: 'start', epoch: mp.epoch, df: mp.difficulty });
   startMultiplayer();
 }
 
 function broadcastRoster() {
   if (!net.isHost) return;
   mp.players.set(0, { name: callsign, ready: true });
-  net.sendEvent({ k: 'roster', players: [...mp.players.entries()].map(([id, p]) => [id, p.name, p.ready ? 1 : 0]) });
+  mp.difficulty = difficulty;
+  net.sendEvent({ k: 'roster', df: difficulty, players: [...mp.players.entries()].map(([id, p]) => [id, p.name, p.ready ? 1 : 0]) });
   renderRoom();
 }
 
@@ -2082,6 +2129,7 @@ net.on('hello', (m) => {             // host: a guest introduced themselves
 });
 net.on('roster', (m) => {            // guest: who's in the room
   mp.players = new Map(m.players.map(([id, name, ready]) => [id, { name, ready: !!ready }]));
+  mp.difficulty = validDifficulty(m.df);
   for (const [id, r] of remotes) if (!mp.players.has(id)) { r.dispose(); remotes.delete(id); }
   for (const [id, r] of remotes) r.name = pilotName(id);
   if (lobbyOpen()) setLobbyStatus(`Waiting for ${pilotName(0)} to launch`, 'busy');
@@ -2096,6 +2144,7 @@ net.on('name', (m) => {              // host: a guest renamed
 });
 net.on('start', (m) => {             // guest
   mp.epoch = m.epoch;
+  mp.difficulty = validDifficulty(m.df);
   if (net.synced) startMultiplayer();
   else { mp.pendingStart = true; setLobbyStatus('Syncing clocks', 'busy'); }
 });
@@ -2318,6 +2367,7 @@ function renderRoom() {
   for (let i = ids.length; i < MAX_PILOTS; i++) rows.push('<div class="lp empty">open slot — waiting for a pilot…</div>');
   const ready = readyGuests();
   const key = rows.join('') + net.code + host + ready;
+  renderDifficulty();
   if (key === roomKey) return;
   roomKey = key;
   lobbyEls.players.innerHTML = rows.join('');
@@ -2407,6 +2457,7 @@ lobbyEls.callsign.addEventListener('keydown', (e) => { if (e.code === 'Enter') l
 // ===========================================================================
 applyQuality();
 updateBest();
+renderDifficulty();
 updateMenuCamera(0);
 blackHole.update(camera, 0, renderer.domElement.height);
 renderer.compile(scene, camera);
