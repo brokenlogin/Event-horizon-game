@@ -2740,6 +2740,8 @@ function renderRoom() {
     let ping = '';
     if (!you && host) ping = net.rttOf(id) ? `${Math.round(net.rttOf(id) * 1000)} ms` : '';
     if (!you && !host && id === 0 && net.rtt) ping = `${Math.round(net.rtt * 1000)} ms`;
+    const route = !you && (host || id === 0) ? net.routeOf(id) : '';
+    if (ping && route) ping += route === 'relay' ? ' · RELAY' : ' · DIRECT';
     return `<div class="lp${you ? ' you' : ''}"><i></i><b>${esc(you ? callsign : p.name)}</b><span class="lp-tag">${tags}</span><span class="lp-ping">${ping}</span></div>`;
   });
   for (let i = ids.length; i < MAX_PILOTS; i++) rows.push('<div class="lp empty">open slot — waiting for a pilot…</div>');
@@ -2773,7 +2775,10 @@ async function hostGame() {
     await net.host();
     roomKey = '';
     renderRoom();
-    setLobbyStatus('Share the room code — waiting for pilots', 'busy');
+    setLobbyStatus(net.relayConfigured && !net.relayReady
+      ? 'Share the room code — waiting for pilots (relay server not responding: other networks may fail)'
+      : net.relayConfigured ? 'Share the room code — waiting for pilots'
+        : 'Share the room code — waiting for pilots (no relay set up: other networks may fail)', 'busy');
   } catch (msg) {
     setLobbyStatus(String(msg), 'error');
     showLobbyChoice();

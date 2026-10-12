@@ -4,7 +4,8 @@
 // Topology is a star: every guest connects directly to the host, and the host
 // relays what the guests say to each other. PeerJS's free public broker
 // (0.peerjs.com) is used only for the handshake; afterwards all traffic flows
-// directly between the browsers. Each link has two data channels:
+// directly between the browsers — or, when the networks won't allow a direct
+// link, through the TURN relay set up in turn-config.js. Each link has two data channels:
 //   state  — unordered: ship / enemy snapshots, stale ones are simply dropped
 //   events — reliable + ordered: everything else (fire, hits, kills, economy…)
 //
@@ -12,6 +13,8 @@
 // Clock: the host's clock is the reference. Guests measure their offset with
 // NTP-style pings (best-of recent samples), so netTime() is shared.
 // ---------------------------------------------------------------------------
+
+import { TURN } from './turn-config.js';
 
 export const PROTOCOL = 6;
 export const MAX_PILOTS = 4;
@@ -25,6 +28,11 @@ const CONNECT_TIMEOUT = 15000;
 const RELAY = new Set(['s', 'f', 'd']);
 
 const nowSec = () => performance.now() / 1000;
+
+// Public STUN (finds each browser's public address). PeerJS's built-in relay
+// servers no longer exist, so the ICE list is set here explicitly.
+const STUN = [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }];
+const ICE_CACHE_SECONDS = 30 * 60;
 
 function makeCode() {
   let s = '';
@@ -46,6 +54,7 @@ class Link {
     this.lastRecv = 0;
     this.rtt = 0;
     this.pingTimer = 0;
+    this.route = '';       // 'direct' | 'relay', once known
   }
   owns(conn) { return conn === this.state || conn === this.events || !this.state || !this.events; }
 }
@@ -54,7 +63,39 @@ class Net {
   constructor() {
     this.handlers = {};
     this.sim = { latency: 0, jitter: 0, loss: 0 };
+    this.relayReady = false;   // a TURN relay is configured and answered
+    this._ice = null;
+    this._iceAt = -Infinity;
     this._reset();
+  }
+
+  get relayConfigured() { return !!((TURN.meteredApp && TURN.meteredApiKey) || TURN.servers.length); }
+
+  /** STUN + relay servers for WebRTC. Metered credentials are fetched (and cached for a while). */
+  async _iceServers() {
+    if (this._ice && nowSec() - this._iceAt < ICE_CACHE_SECONDS) return this._ice;
+    const list = [...STUN, ...TURN.servers];
+    this.relayReady = TURN.servers.length > 0;
+    if (TURN.meteredApp && TURN.meteredApiKey) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 6000);
+      try {
+        const url = `https://${encodeURIComponent(TURN.meteredApp)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(TURN.meteredApiKey)}`;
+        const res = await fetch(url, { signal: ctl.signal });
+        const servers = res.ok ? await res.json() : null;
+        if (Array.isArray(servers) && servers.length) {
+          list.push(...servers.filter((x) => x && x.urls && !String(x.urls).startsWith('stun:')));
+          this.relayReady = true;
+        } else console.warn('[net] relay credentials request failed', res.status);
+      } catch (e) {
+        console.warn('[net] could not fetch relay credentials', e);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    this._ice = list;
+    this._iceAt = nowSec();
+    return list;
   }
 
   _reset() {
@@ -94,14 +135,15 @@ class Net {
   // -------------------------------------------------------------------------
   // Hosting / joining
   // -------------------------------------------------------------------------
-  host() {
+  async host() {
     this.close();
     this.role = 'host';
     this.myId = 0;
+    const iceServers = await this._iceServers();
     return new Promise((resolve, reject) => {
       const attempt = (tries) => {
         const code = makeCode();
-        const peer = new window.Peer(PREFIX + code, { debug: 0 });
+        const peer = new window.Peer(PREFIX + code, { debug: 0, config: { iceServers } });
         this.peer = peer;
         peer.on('open', () => { this.code = code; resolve(code); });
         peer.on('connection', (conn) => {
@@ -131,14 +173,15 @@ class Net {
     });
   }
 
-  join(rawCode) {
+  async join(rawCode) {
     this.close();
     this.role = 'client';
     const code = normalizeCode(rawCode);
     this.code = code;
+    if (code.length !== CODE_LEN) throw `Room codes are ${CODE_LEN} characters.`;
+    const iceServers = await this._iceServers();
     return new Promise((resolve, reject) => {
-      if (code.length !== CODE_LEN) { reject(`Room codes are ${CODE_LEN} characters.`); return; }
-      const peer = new window.Peer({ debug: 0 });
+      const peer = new window.Peer({ debug: 0, config: { iceServers } });
       this.peer = peer;
       let settled = false;
       const fail = (msg) => { if (!settled) { settled = true; reject(msg); } else this._emit('error', msg); };
@@ -148,7 +191,10 @@ class Net {
         this._attach(link, peer.connect(link.peerId, { label: 'state', reliable: false, serialization: 'json' }));
         this._attach(link, peer.connect(link.peerId, { label: 'events', reliable: true, serialization: 'json' }));
         this.connectTimer = setTimeout(() => {
-          if (!this.connected) fail('Could not open a direct link. One of your networks may block peer-to-peer connections — try the same Wi-Fi, or another network.');
+          if (this.connected) return;
+          if (!this.relayConfigured) fail('Could not connect directly between your two networks, and no relay server is set up. Playing on the same Wi-Fi works; for other networks, add a free relay (see src/turn-config.js).');
+          else if (!this.relayReady) fail('Could not connect directly, and the relay server did not respond (check the Metered app name and API key in src/turn-config.js).');
+          else fail('Could not connect, even through the relay. Check both internet connections and try again.');
         }, CONNECT_TIMEOUT);
       });
       this._joinResolve = () => { if (!settled) { settled = true; resolve(code); } };
@@ -163,7 +209,9 @@ class Net {
       case 'network': case 'server-error': case 'socket-error': case 'socket-closed':
         return 'Could not reach the matchmaking service (0.peerjs.com). Check your internet connection.';
       case 'browser-incompatible': return 'This browser does not support WebRTC data channels.';
-      case 'webrtc': return 'The direct connection failed (WebRTC). Your networks may block peer-to-peer traffic.';
+      case 'webrtc': return this.relayConfigured
+        ? 'The connection failed (WebRTC), even with the relay. Try again, or try another network.'
+        : 'The direct connection failed (WebRTC), and no relay server is set up. See src/turn-config.js.';
       default: return `Connection error: ${(err && (err.type || err.message)) || err}`;
     }
   }
@@ -180,6 +228,7 @@ class Net {
       if (link.state && link.events && !link.open) {
         link.open = true;
         link.lastRecv = nowSec();
+        this._detectRoute(link);
         if (this.role === 'host') {
           link.id = this._freeId();
           this._emit('join', { id: link.id });
@@ -194,6 +243,33 @@ class Net {
     conn.on('data', (msg) => { if (link.owns(conn) && this.links.get(link.peerId) === link) this._recv(link, msg); });
     conn.on('close', () => { if (link.owns(conn)) this._dropLink(link, 'left the flight.'); });
     conn.on('error', () => { if (link.owns(conn)) this._dropLink(link, 'lost the link.'); });
+  }
+
+  /** Find out whether a link runs directly or through the relay (for the lobby display). */
+  async _detectRoute(link) {
+    const pc = link.events && link.events.peerConnection;
+    if (!pc || !pc.getStats) return;
+    for (let tries = 0; tries < 5 && !link.route; tries++) {
+      try {
+        const stats = await pc.getStats();
+        let pair = null;
+        stats.forEach((r) => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = stats.get(r.selectedCandidatePairId); });
+        if (!pair) stats.forEach((r) => { if (!pair && r.type === 'candidate-pair' && r.state === 'succeeded' && r.nominated) pair = r; });
+        if (pair) {
+          const local = stats.get(pair.localCandidateId), remote = stats.get(pair.remoteCandidateId);
+          const relayed = (local && local.candidateType === 'relay') || (remote && remote.candidateType === 'relay');
+          link.route = relayed ? 'relay' : 'direct';
+          this._emit('route', { id: link.id, route: link.route });
+          return;
+        }
+      } catch { /* ignore */ }
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
+
+  routeOf(id) {
+    const l = this.role === 'client' ? this.hostLink : this.openLinks().find((x) => x.id === id);
+    return l ? l.route : '';
   }
 
   _dropLink(link, reason) {
@@ -222,7 +298,7 @@ class Net {
     const { handlers, sim } = this;
     this._reset();
     this.handlers = handlers;
-    this.sim = sim;
+    this.sim = sim;   // (the relay credentials cache survives too: it lives outside _reset)
   }
 
   // -------------------------------------------------------------------------

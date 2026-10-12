@@ -45,7 +45,12 @@ Enemy damage covers their cannon fire, seeker rams and collisions with enemy shi
 Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's remembered). One player clicks **HOST A GAME** and shares the 5-letter room code; the others type it and press **JOIN**. Everyone waits in the room's pilot list until the host presses **START**. Once a flight has launched the room is closed to newcomers.
 
 - **No server of your own.** The connection is peer-to-peer WebRTC (via [PeerJS](https://peerjs.com)). PeerJS's free public matchmaking service handles only the handshake. After that, every guest talks directly to the host, which relays between guests.
-- **Works on the same Wi-Fi and over the internet** for most home networks. Some strict networks (certain mobile hotspots, corporate or university Wi-Fi) block direct connections; the lobby will say so. Try another network.
+- **Same Wi-Fi always works.** Over the internet, many home networks can connect directly, but strict ones (phone hotspots, many ISPs, school or work Wi-Fi) need a **relay (TURN) server** to pass the traffic. PeerJS's free relays have shut down, so set up your own free one:
+  1. Make a free account at [Metered](https://dashboard.metered.ca/signup).
+  2. Put your app name (the part before `.metered.live`) and its **credential API key** into [`src/turn-config.js`](src/turn-config.js). That key is meant for browser code and can only fetch relay credentials. Never use the account's secret key.
+  3. Push. The game then falls back to the relay whenever a direct link fails.
+
+  In the waiting room, each pilot's ping shows **DIRECT** or **RELAY**. A relayed link adds a little latency, and only relayed games count against the relay's free monthly allowance.
 - **Co-op waves that scale with the crew:** each extra pilot adds +100% hostiles (2 pilots 2×, 3 pilots 3×, 4 pilots 4×) and makes upgrades 60% pricier (2 pilots 1.6×, 3 pilots 2.2×, 4 pilots 2.8×). The host's game runs the enemies and everyone sees the same ones. Each enemy hunts whichever pilot is closest.
 - **Fair hits:** each pilot's game decides whether enemy fire hits *their own* ship. Your hits on enemies go to the host, which applies the damage and credits the kill (and its score) to whoever made it.
 - **Shared economy:** wrecks appear for everyone and can be salvaged once. Scrap goes into one pool, and upgrades apply to every ship. Repairs and rearming use the shared pool but only fix your own ship.
