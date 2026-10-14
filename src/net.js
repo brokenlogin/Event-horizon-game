@@ -1,22 +1,23 @@
 // ---------------------------------------------------------------------------
 // Peer-to-peer links between up to four copies of the game (WebRTC via PeerJS).
 //
-// Topology is a star: every guest connects directly to the host, and the host
-// relays what the guests say to each other. PeerJS's free public broker
-// (0.peerjs.com) is used only for the handshake; afterwards all traffic flows
-// directly between the browsers — or, when the networks won't allow a direct
-// link, through the TURN relay set up in turn-config.js. Each link has two data channels:
-//   state  — unordered: ship / enemy snapshots, stale ones are simply dropped
-//   events — reliable + ordered: everything else (fire, hits, kills, economy…)
+// Topology is a star: every guest talks to the host, and the host relays what
+// the guests say to each other. Two ways to connect:
+//   LAN    — direct WebRTC links (PeerJS; its free public broker 0.peerjs.com
+//            is used only for the handshake). Best on the same network.
+//   REMOTE — everyone connects to a relay server the host runs on their own
+//            computer (serve.py --remote), reachable through a Cloudflare quick
+//            tunnel. Works between any two networks.
+// LAN links have two data channels: `state` (unordered: snapshots, stale ones
+// are simply dropped) and `events` (reliable + ordered: everything else).
+// REMOTE links carry both over one WebSocket.
 //
 // Every message carries `from`, the sender's pilot id (host = 0, guests 1–3).
 // Clock: the host's clock is the reference. Guests measure their offset with
 // NTP-style pings (best-of recent samples), so netTime() is shared.
 // ---------------------------------------------------------------------------
 
-import { TURN } from './turn-config.js';
-
-export const PROTOCOL = 6;
+export const PROTOCOL = 7;
 export const MAX_PILOTS = 4;
 const PREFIX = 'event-horizon-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O, 1/I
@@ -28,11 +29,29 @@ const CONNECT_TIMEOUT = 15000;
 const RELAY = new Set(['s', 'f', 'd']);
 
 const nowSec = () => performance.now() / 1000;
+const UNREACHABLE = 'Could not reach the host\'s server. Check the share code, and that the host\'s server window is still open (a brand-new one can take ~10 seconds to start answering).';
 
-// Public STUN (finds each browser's public address). PeerJS's built-in relay
-// servers no longer exist, so the ICE list is set here explicitly.
-const STUN = [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }];
-const ICE_CACHE_SECONDS = 30 * 60;
+// Public STUN for LAN (WebRTC) links. PeerJS's own relay servers no longer
+// exist, so the list is set explicitly; different networks should use REMOTE.
+const ICE_SERVERS = [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }];
+const RELAY_OPEN_TIMEOUT = 12000;
+
+/**
+ * A REMOTE share code is the name of the host's Cloudflare quick tunnel
+ * ("word-word-word-word"). Pasting the whole https://….trycloudflare.com link
+ * works too, and "localhost:8000" connects to a relay on this machine (testing).
+ * Returns { code, url } or null.
+ */
+export function parseShareCode(raw) {
+  let s = String(raw || '').trim().toLowerCase();
+  if (!s) return null;
+  s = s.replace(/^(wss?|https?):\/\//, '').replace(/\/.*$/, '');
+  const local = s.match(/^(localhost|127\.0\.0\.1)(:\d+)?$/);
+  if (local) return { code: s, url: `ws://${s}/relay` };
+  s = s.replace(/\.trycloudflare\.com$/, '');
+  if (!/^[a-z0-9]+(-[a-z0-9]+)+$/.test(s) || s.length > 80) return null;
+  return { code: s, url: `wss://${s}.trycloudflare.com/relay` };
+}
 
 function makeCode() {
   let s = '';
@@ -54,7 +73,8 @@ class Link {
     this.lastRecv = 0;
     this.rtt = 0;
     this.pingTimer = 0;
-    this.route = '';       // 'direct' | 'relay', once known
+    this.route = '';       // 'direct' | 'relay' (LAN), 'remote'
+    this.relayed = false;  // REMOTE: carried by the relay server's WebSocket
   }
   owns(conn) { return conn === this.state || conn === this.events || !this.state || !this.events; }
 }
@@ -63,44 +83,14 @@ class Net {
   constructor() {
     this.handlers = {};
     this.sim = { latency: 0, jitter: 0, loss: 0 };
-    this.relayReady = false;   // a TURN relay is configured and answered
-    this._ice = null;
-    this._iceAt = -Infinity;
     this._reset();
-  }
-
-  get relayConfigured() { return !!((TURN.meteredApp && TURN.meteredApiKey) || TURN.servers.length); }
-
-  /** STUN + relay servers for WebRTC. Metered credentials are fetched (and cached for a while). */
-  async _iceServers() {
-    if (this._ice && nowSec() - this._iceAt < ICE_CACHE_SECONDS) return this._ice;
-    const list = [...STUN, ...TURN.servers];
-    this.relayReady = TURN.servers.length > 0;
-    if (TURN.meteredApp && TURN.meteredApiKey) {
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), 6000);
-      try {
-        const url = `https://${encodeURIComponent(TURN.meteredApp)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(TURN.meteredApiKey)}`;
-        const res = await fetch(url, { signal: ctl.signal });
-        const servers = res.ok ? await res.json() : null;
-        if (Array.isArray(servers) && servers.length) {
-          list.push(...servers.filter((x) => x && x.urls && !String(x.urls).startsWith('stun:')));
-          this.relayReady = true;
-        } else console.warn('[net] relay credentials request failed', res.status);
-      } catch (e) {
-        console.warn('[net] could not fetch relay credentials', e);
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    this._ice = list;
-    this._iceAt = nowSec();
-    return list;
   }
 
   _reset() {
     this.role = null;          // 'host' | 'client'
+    this.mode = 'lan';         // 'lan' | 'remote'
     this.peer = null;
+    this.ws = null;            // REMOTE: the WebSocket to the relay server
     this.code = '';
     this.myId = 0;
     this.links = new Map();    // peerId -> Link
@@ -135,11 +125,13 @@ class Net {
   // -------------------------------------------------------------------------
   // Hosting / joining
   // -------------------------------------------------------------------------
-  async host() {
+  /** Open a room. LAN by default; pass { remote: parseShareCode(...) } for REMOTE. */
+  async host(opts = {}) {
+    if (opts.remote) return this._hostRemote(opts.remote);
     this.close();
     this.role = 'host';
     this.myId = 0;
-    const iceServers = await this._iceServers();
+    const iceServers = ICE_SERVERS;
     return new Promise((resolve, reject) => {
       const attempt = (tries) => {
         const code = makeCode();
@@ -173,13 +165,15 @@ class Net {
     });
   }
 
-  async join(rawCode) {
+  /** Join a room: a LAN room code, or { remote: parseShareCode(...) }. */
+  async join(rawCode, opts = {}) {
+    if (opts.remote) return this._joinRemote(opts.remote);
     this.close();
     this.role = 'client';
     const code = normalizeCode(rawCode);
     this.code = code;
     if (code.length !== CODE_LEN) throw `Room codes are ${CODE_LEN} characters.`;
-    const iceServers = await this._iceServers();
+    const iceServers = ICE_SERVERS;
     return new Promise((resolve, reject) => {
       const peer = new window.Peer({ debug: 0, config: { iceServers } });
       this.peer = peer;
@@ -191,10 +185,7 @@ class Net {
         this._attach(link, peer.connect(link.peerId, { label: 'state', reliable: false, serialization: 'json' }));
         this._attach(link, peer.connect(link.peerId, { label: 'events', reliable: true, serialization: 'json' }));
         this.connectTimer = setTimeout(() => {
-          if (this.connected) return;
-          if (!this.relayConfigured) fail('Could not connect directly between your two networks, and no relay server is set up. Playing on the same Wi-Fi works; for other networks, add a free relay (see src/turn-config.js).');
-          else if (!this.relayReady) fail('Could not connect directly, and the relay server did not respond (check the Metered app name and API key in src/turn-config.js).');
-          else fail('Could not connect, even through the relay. Check both internet connections and try again.');
+          if (!this.connected) fail('Could not connect. LAN games need everyone on the same network. For different networks, use the REMOTE tab.');
         }, CONNECT_TIMEOUT);
       });
       this._joinResolve = () => { if (!settled) { settled = true; resolve(code); } };
@@ -209,9 +200,7 @@ class Net {
       case 'network': case 'server-error': case 'socket-error': case 'socket-closed':
         return 'Could not reach the matchmaking service (0.peerjs.com). Check your internet connection.';
       case 'browser-incompatible': return 'This browser does not support WebRTC data channels.';
-      case 'webrtc': return this.relayConfigured
-        ? 'The connection failed (WebRTC), even with the relay. Try again, or try another network.'
-        : 'The direct connection failed (WebRTC), and no relay server is set up. See src/turn-config.js.';
+      case 'webrtc': return 'The direct connection failed (WebRTC). LAN games need everyone on the same network. For different networks, use the REMOTE tab.';
       default: return `Connection error: ${(err && (err.type || err.message)) || err}`;
     }
   }
@@ -226,23 +215,142 @@ class Net {
     conn.on('open', () => {
       link[conn.label === 'state' ? 'state' : 'events'] = conn;
       if (link.state && link.events && !link.open) {
-        link.open = true;
-        link.lastRecv = nowSec();
+        this._linkOpened(link);
         this._detectRoute(link);
-        if (this.role === 'host') {
-          link.id = this._freeId();
-          this._emit('join', { id: link.id });
-        } else {
-          clearTimeout(this.connectTimer);
-          // quick burst of pings so the clock offset is good before play starts
-          for (let i = 0; i < 6; i++) setTimeout(() => this._ping(link), i * 120);
-          this._emit('connected');
-        }
       }
     });
     conn.on('data', (msg) => { if (link.owns(conn) && this.links.get(link.peerId) === link) this._recv(link, msg); });
     conn.on('close', () => { if (link.owns(conn)) this._dropLink(link, 'left the flight.'); });
     conn.on('error', () => { if (link.owns(conn)) this._dropLink(link, 'lost the link.'); });
+  }
+
+  _linkOpened(link) {
+    link.open = true;
+    link.lastRecv = nowSec();
+    if (this.role === 'host') {
+      link.id = this._freeId();
+      this._emit('join', { id: link.id });
+    } else {
+      clearTimeout(this.connectTimer);
+      // quick burst of pings so the clock offset is good before play starts
+      for (let i = 0; i < 6; i++) setTimeout(() => this._ping(link), i * 120);
+      this._emit('connected');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // REMOTE: through the relay server (serve.py --remote)
+  // -------------------------------------------------------------------------
+  _openRelay(url) {
+    return new Promise((resolve, reject) => {
+      let ws;
+      try { ws = new WebSocket(url); } catch { reject('That share code does not look right.'); return; }
+      const timer = setTimeout(() => { try { ws.close(); } catch { /* ignore */ } reject(UNREACHABLE); }, RELAY_OPEN_TIMEOUT);
+      ws.onopen = () => { clearTimeout(timer); resolve(ws); };
+      ws.onerror = () => { clearTimeout(timer); reject(UNREACHABLE); };
+    });
+  }
+
+  _relayOut(obj) {
+    if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj));
+  }
+
+  async _hostRemote(share) {
+    this.close();
+    this.role = 'host';
+    this.mode = 'remote';
+    this.myId = 0;
+    const ws = await this._openRelay(share.url);
+    if (this.role !== 'host' || this.mode !== 'remote') { ws.close(); throw 'Cancelled.'; }
+    this.ws = ws;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      ws.onmessage = (e) => {
+        let m;
+        try { m = JSON.parse(e.data); } catch { return; }
+        if (!settled) {
+          settled = true;
+          if (m.t === 'hosted') { this.code = share.code; resolve(share.code); } else reject(m.why || 'The relay server refused to host.');
+          return;
+        }
+        this._onRelay(m);
+      };
+      ws.onclose = () => {
+        if (this.ws !== ws) return;
+        if (!settled) { settled = true; reject('The relay server closed the connection.'); return; }
+        for (const l of [...this.links.values()]) this._dropLink(l, 'lost the link.');
+        this.ws = null;
+        this._emit('error', 'Lost the connection to your relay server. Is its window still open?');
+      };
+      this._relayOut({ t: 'host' });
+    });
+  }
+
+  async _joinRemote(share) {
+    this.close();
+    this.role = 'client';
+    this.mode = 'remote';
+    this.code = share.code;
+    const ws = await this._openRelay(share.url);
+    if (this.role !== 'client' || this.mode !== 'remote') { ws.close(); throw 'Cancelled.'; }
+    this.ws = ws;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const fail = (msg) => { if (!settled) { settled = true; reject(msg); } else this._emit('error', msg); };
+      this._joinResolve = () => { if (!settled) { settled = true; resolve(share.code); } };
+      this._joinReject = (msg) => fail(msg);
+      ws.onmessage = (e) => {
+        let m;
+        try { m = JSON.parse(e.data); } catch { return; }
+        if (m.t === 'joined') {
+          const link = this.hostLink = new Link('host');
+          link.relayed = true;
+          link.route = 'remote';
+          this.links.set(link.peerId, link);
+          this._linkOpened(link);
+          return;
+        }
+        if (m.t === 'error') { fail(m.why); return; }
+        this._onRelay(m);
+      };
+      ws.onclose = () => {
+        if (this.ws !== ws) return;
+        this.ws = null;
+        if (!settled) fail('The host\'s relay server closed the connection.');
+        else if (this.hostLink) this._dropLink(this.hostLink, 'lost the link.');
+      };
+      this.connectTimer = setTimeout(() => {
+        if (!this.connected) fail('Reached the host\'s server, but their game did not answer. Make sure they pressed HOST.');
+      }, CONNECT_TIMEOUT);
+      this._relayOut({ t: 'join' });
+    });
+  }
+
+  _onRelay(m) {
+    if (this.role === 'host') {
+      if (m.t === 'peer-join') {
+        if (this.locked || this.openLinks().length >= MAX_PILOTS - 1) {
+          this._relayOut({ t: 'd', to: m.peer, m: { k: 'refused', why: this.locked ? 'That flight has already launched.' : 'That room is full (4 pilots).' } });
+          setTimeout(() => this._relayOut({ t: 'kick', peer: m.peer }), 400);
+          return;
+        }
+        const link = new Link(m.peer);
+        link.relayed = true;
+        link.route = 'remote';
+        this.links.set(m.peer, link);
+        this._linkOpened(link);
+      } else if (m.t === 'peer-leave') {
+        const link = this.links.get(m.peer);
+        if (link) this._dropLink(link, 'left the flight.');
+      } else if (m.t === 'd') {
+        const link = this.links.get(m.from);
+        if (link) this._recv(link, m.m);
+      }
+    } else if (m.t === 'd') {
+      if (this.hostLink) this._recv(this.hostLink, m.m);
+    } else if (m.t === 'closed') {
+      if (this.hostLink) this._dropLink(this.hostLink, 'left the flight.');
+    }
   }
 
   /** Find out whether a link runs directly or through the relay (for the lobby display). */
@@ -276,6 +384,7 @@ class Net {
     if (this.links.get(link.peerId) !== link) return;
     this.links.delete(link.peerId);
     for (const c of [link.state, link.events]) { try { c && c.close(); } catch { /* ignore */ } }
+    if (link.relayed && this.role === 'host') this._relayOut({ t: 'kick', peer: link.peerId });
     if (!link.open) return;
     link.open = false;
     if (this.role === 'host') this._emit('leave', { id: link.id, reason });
@@ -295,10 +404,11 @@ class Net {
     clearTimeout(this.connectTimer);
     for (const l of this.links.values()) for (const c of [l.state, l.events]) { try { c && c.close(); } catch { /* ignore */ } }
     try { this.peer && this.peer.destroy(); } catch { /* ignore */ }
+    try { this.ws && this.ws.close(); } catch { /* ignore */ }
     const { handlers, sim } = this;
     this._reset();
     this.handlers = handlers;
-    this.sim = sim;   // (the relay credentials cache survives too: it lives outside _reset)
+    this.sim = sim;
   }
 
   // -------------------------------------------------------------------------
@@ -343,18 +453,30 @@ class Net {
   _ping(link) { if (link.open) this._sendOn(link, 'events', { k: 'ping', a: nowSec() }); }
 
   _sendOn(link, channel, msg) {
-    const c = link[channel];
-    if (!c || !c.open) return;
+    let deliver;
+    if (link.relayed) {
+      const out = this.role === 'host' ? { t: 'd', to: link.peerId, m: msg } : { t: 'd', m: msg };
+      deliver = () => this._relayOut(out);
+    } else {
+      const c = link[channel];
+      if (!c || !c.open) return;
+      deliver = () => { if (c.open) c.send(msg); };
+    }
     const { latency, jitter, loss } = this.sim;
     if (loss > 0 && channel === 'state' && Math.random() < loss) return;
-    if (latency > 0 || jitter > 0) setTimeout(() => { if (c.open) c.send(msg); }, latency + Math.random() * jitter);
-    else c.send(msg);
+    if (latency > 0 || jitter > 0) setTimeout(deliver, latency + Math.random() * jitter);
+    else deliver();
   }
 
   /** Send to everyone (host) or to the host (guest). `to` limits a host message to one pilot id. */
   _send(channel, msg, to) {
     if (msg.from === undefined) msg.from = this.myId;
     if (this.role === 'client') { if (this.hostLink) this._sendOn(this.hostLink, channel, msg); return; }
+    if (this.mode === 'remote' && to === undefined && !this.sim.latency && !this.sim.jitter && !this.sim.loss) {
+      // one message for the relay to fan out, instead of one per guest
+      if (this.openLinks().length) this._relayOut({ t: 'd', m: msg });
+      return;
+    }
     for (const l of this.openLinks()) if (to === undefined || l.id === to) this._sendOn(l, channel, msg);
   }
 

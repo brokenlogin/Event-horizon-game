@@ -20,7 +20,7 @@ import { MissileSystem } from './missiles.js';
 import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
 import { DockAssist, TrailPoint } from './autopilot.js';
 import { Radar3D } from './radar3d.js';
-import { net, PROTOCOL, MAX_PILOTS, normalizeCode } from './net.js';
+import { net, PROTOCOL, MAX_PILOTS, normalizeCode, parseShareCode } from './net.js';
 import { RemotePlayer } from './remote.js';
 import { WreckSystem, COLLECT_RANGE } from './wrecks.js';
 import { StationUI, UPGRADES, newUpgradeLevels, upgradeCost, REPAIR_HP_PER_SCRAP, REARM_COST, REVIVE_COST } from './stationui.js';
@@ -2707,7 +2707,41 @@ const lobbyEls = {
   status: document.getElementById('lobby-status'),
   input: document.getElementById('join-code'),
   callsign: document.getElementById('callsign'),
+  codeLabel: document.getElementById('lobby-code-label'),
+  tabs: [...document.querySelectorAll('.lobby-tabs button')],
+  lan: document.getElementById('lobby-lan'),
+  remote: document.getElementById('lobby-remote'),
+  remoteCode: document.getElementById('remote-code'),
+  remoteDetected: document.getElementById('remote-detected'),
 };
+// LAN (direct WebRTC) or REMOTE (through the host's relay server + Cloudflare tunnel)
+let lobbyMode = store.get('eh_lobby_mode', 'lan') === 'remote' ? 'remote' : 'lan';
+lobbyEls.remoteCode.value = store.get('eh_share_code', '') || '';
+function setLobbyMode(mode) {
+  lobbyMode = mode === 'remote' ? 'remote' : 'lan';
+  store.set('eh_lobby_mode', lobbyMode);
+  for (const b of lobbyEls.tabs) b.classList.toggle('on', b.dataset.mode === lobbyMode);
+  lobbyEls.lan.classList.toggle('hidden', lobbyMode !== 'lan');
+  lobbyEls.remote.classList.toggle('hidden', lobbyMode !== 'remote');
+  if (!net.role) setLobbyStatus('');
+}
+for (const b of lobbyEls.tabs) {
+  b.addEventListener('click', (e) => { e.stopPropagation(); audio.init(); audio.uiClick(); setLobbyMode(b.dataset.mode); });
+}
+/** Opened from the host's own relay server? Then it knows the share code. */
+async function detectLocalRelay() {
+  if (!/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return;
+  try {
+    const res = await fetch('/relay-info', { cache: 'no-store' });
+    const info = res.ok ? await res.json() : null;
+    if (info && info.code) {
+      lobbyEls.remoteCode.value = info.code;
+      store.set('eh_share_code', info.code);
+      lobbyEls.remoteDetected.textContent = 'Share code picked up from your server. Press HOST.';
+      setLobbyMode('remote');
+    }
+  } catch { /* plain file server: nothing to detect */ }
+}
 lobbyEls.callsign.value = callsign;
 
 function lobbyOpen() { return !document.getElementById('lobby').classList.contains('hidden'); }
@@ -2741,7 +2775,7 @@ function renderRoom() {
     if (!you && host) ping = net.rttOf(id) ? `${Math.round(net.rttOf(id) * 1000)} ms` : '';
     if (!you && !host && id === 0 && net.rtt) ping = `${Math.round(net.rtt * 1000)} ms`;
     const route = !you && (host || id === 0) ? net.routeOf(id) : '';
-    if (ping && route) ping += route === 'relay' ? ' · RELAY' : ' · DIRECT';
+    if (ping && (route === 'relay' || route === 'direct')) ping += route === 'relay' ? ' · RELAY' : ' · DIRECT';
     return `<div class="lp${you ? ' you' : ''}"><i></i><b>${esc(you ? callsign : p.name)}</b><span class="lp-tag">${tags}</span><span class="lp-ping">${ping}</span></div>`;
   });
   for (let i = ids.length; i < MAX_PILOTS; i++) rows.push('<div class="lp empty">open slot — waiting for a pilot…</div>');
@@ -2752,6 +2786,8 @@ function renderRoom() {
   roomKey = key;
   lobbyEls.players.innerHTML = rows.join('');
   lobbyEls.code.textContent = net.code || '-----';
+  lobbyEls.code.classList.toggle('long', net.mode === 'remote');
+  lobbyEls.codeLabel.textContent = net.mode === 'remote' ? 'SHARE CODE · CLICK TO COPY' : 'ROOM CODE';
   lobbyEls.count.textContent = `${Math.max(1, ids.length)} / ${MAX_PILOTS}`;
   lobbyEls.start.classList.toggle('hidden', !host);
   lobbyEls.start.disabled = !(host && ready > 0);
@@ -2763,35 +2799,57 @@ function renderRoom() {
 function openLobby() {
   setOverlay('lobby');
   showLobbyChoice();
-  setLobbyStatus(net.available ? '' : 'The multiplayer library failed to load. Check your internet connection and reload.', net.available ? '' : 'error');
+  setLobbyMode(lobbyMode);
+  setLobbyStatus(net.available ? '' : 'The LAN multiplayer library failed to load. Check your internet connection and reload. (REMOTE still works.)', net.available ? '' : 'error');
+  detectLocalRelay();
 }
-async function hostGame() {
-  if (!net.available) return;
+/** The REMOTE share code in the box, or null (with an error shown). */
+function remoteShare() {
+  const share = parseShareCode(lobbyEls.remoteCode.value);
+  if (!share) {
+    setLobbyStatus(lobbyEls.remoteCode.value.trim()
+      ? 'That doesn\'t look like a share code. It\'s the words-with-dashes code printed by host-remote / ./serve.sh --remote.'
+      : 'Paste the share code first. The host gets it by running host-remote (or ./serve.sh --remote).', 'error');
+    return null;
+  }
+  lobbyEls.remoteCode.value = share.code;
+  store.set('eh_share_code', share.code);
+  return share;
+}
+async function hostGame(remote = false) {
+  const share = remote ? remoteShare() : null;
+  if (remote ? !share : !net.available) return;
   mp.players.clear();
   showRoom();
   lobbyEls.code.textContent = '·····';
-  setLobbyStatus('Opening a room', 'busy');
+  lobbyEls.code.classList.remove('long');
+  setLobbyStatus(remote ? 'Connecting to your relay server' : 'Opening a room', 'busy');
   try {
-    await net.host();
+    await net.host(remote ? { remote: share } : {});
     roomKey = '';
     renderRoom();
-    setLobbyStatus(net.relayConfigured && !net.relayReady
-      ? 'Share the room code — waiting for pilots (relay server not responding: other networks may fail)'
-      : net.relayConfigured ? 'Share the room code — waiting for pilots'
-        : 'Share the room code — waiting for pilots (no relay set up: other networks may fail)', 'busy');
+    setLobbyStatus(remote ? 'Send your friends the share code — waiting for pilots' : 'Share the room code — waiting for pilots', 'busy');
   } catch (msg) {
     setLobbyStatus(String(msg), 'error');
+    net.close();
     showLobbyChoice();
   }
 }
-async function joinGame() {
-  if (!net.available) return;
-  const code = normalizeCode(lobbyEls.input.value);
-  if (code.length !== 5) { setLobbyStatus('Enter the 5-character room code from the host.', 'error'); return; }
-  setLobbyStatus(`Connecting to ${code}`, 'busy');
+async function joinGame(remote = false) {
+  let code, share = null;
+  if (remote) {
+    share = remoteShare();
+    if (!share) return;
+    code = share.code;
+  } else {
+    if (!net.available) return;
+    code = normalizeCode(lobbyEls.input.value);
+    if (code.length !== 5) { setLobbyStatus('Enter the 5-character room code from the host.', 'error'); return; }
+  }
+  setLobbyStatus(remote ? 'Connecting to the host\'s server' : `Connecting to ${code}`, 'busy');
   mp.players.clear();
   try {
-    await net.join(code);
+    await net.join(code, remote ? { remote: share } : {});
   } catch (msg) {
     setLobbyStatus(String(msg), 'error');
     net.close();
@@ -2807,8 +2865,23 @@ function leaveRoom() {
 }
 
 bind('btn-multi', openLobby);
-bind('btn-host', hostGame);
-bind('btn-join', joinGame);
+bind('btn-host', () => hostGame(false));
+bind('btn-join', () => joinGame(false));
+bind('btn-remote-host', () => hostGame(true));
+bind('btn-remote-join', () => joinGame(true));
+lobbyEls.remoteCode.addEventListener('keydown', (e) => {
+  if (e.code === 'Enter') { audio.init(); joinGame(true); }
+  if (e.code === 'Escape') leaveRoom();
+});
+lobbyEls.remoteCode.addEventListener('input', () => { lobbyEls.remoteDetected.textContent = ''; });
+lobbyEls.code.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (!net.code) return;
+  try {
+    await navigator.clipboard.writeText(net.code);
+    setLobbyStatus(`Copied ${net.code}`, '');
+  } catch { /* clipboard blocked: the code is selectable */ }
+});
 bind('btn-start', hostStart);
 bind('btn-lobby-back', leaveRoom);
 lobbyEls.input.addEventListener('input', () => {
@@ -2816,7 +2889,7 @@ lobbyEls.input.addEventListener('input', () => {
   if (lobbyEls.input.value !== v) lobbyEls.input.value = v;
 });
 lobbyEls.input.addEventListener('keydown', (e) => {
-  if (e.code === 'Enter') { audio.init(); joinGame(); }
+  if (e.code === 'Enter') { audio.init(); joinGame(false); }
   if (e.code === 'Escape') leaveRoom();
 });
 lobbyEls.callsign.addEventListener('input', () => {

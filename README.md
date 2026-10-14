@@ -42,15 +42,27 @@ Enemy damage covers their cannon fire, seeker rams and collisions with enemy shi
 
 ## Multiplayer (up to 4 pilots)
 
-Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's remembered). One player clicks **HOST A GAME** and shares the 5-letter room code; the others type it and press **JOIN**. Everyone waits in the room's pilot list until the host presses **START**. Once a flight has launched the room is closed to newcomers.
+Everyone opens the game and clicks **MULTIPLAYER**, then sets a **callsign** (it's remembered). Pick a tab:
 
-- **No server of your own.** The connection is peer-to-peer WebRTC (via [PeerJS](https://peerjs.com)). PeerJS's free public matchmaking service handles only the handshake. After that, every guest talks directly to the host, which relays between guests.
-- **Same Wi-Fi always works.** Over the internet, many home networks can connect directly, but strict ones (phone hotspots, many ISPs, school or work Wi-Fi) need a **relay (TURN) server** to pass the traffic. PeerJS's free relays have shut down, so set up your own free one:
-  1. Make a free account at [Metered](https://dashboard.metered.ca/signup).
-  2. Put your app name (the part before `.metered.live`) and its **credential API key** into [`src/turn-config.js`](src/turn-config.js). That key is meant for browser code and can only fetch relay credentials. Never use the account's secret key.
-  3. Push. The game then falls back to the relay whenever a direct link fails.
+**LAN: same network.** One player clicks **HOST A GAME** and shares the 5-letter room code; the others type it and press **JOIN**. The browsers connect directly (WebRTC via [PeerJS](https://peerjs.com), whose free public service only makes the introduction), so there's nothing to install and the lag is lowest. It needs everyone on the same network.
 
-  In the waiting room, each pilot's ping shows **DIRECT** or **RELAY**. A relayed link adds a little latency, and only relayed games count against the relay's free monthly allowance.
+**REMOTE: any networks.** The host runs a small relay on their own computer, reachable through a free Cloudflare quick tunnel. No account and no router setup.
+
+1. **One-time, host only:**
+   - **Python 3.** Macs usually have it; on Windows, get it from python.org.
+   - **cloudflared:** `brew install cloudflared` on Mac, `winget install --id Cloudflare.cloudflared` on Windows.
+   - **The game folder:** clone this repo, or download it as a ZIP.
+2. **Each session, the host starts the relay:**
+   - **Mac:** double-click `host-remote.command`, or run `./serve.sh --remote`.
+   - **Windows:** double-click `host-remote.bat`.
+
+   It prints a **share code** (words with dashes, new each session) and opens the game. Then press MULTIPLAYER → REMOTE → **HOST**. The code is filled in automatically when the game was opened from that window. Otherwise, paste it.
+3. **Friends** open the game as usual (the GitHub Pages link is fine), go to MULTIPLAYER → REMOTE, paste the share code and press **JOIN**. They don't install anything.
+
+Keep the relay window open while you play; closing it (or Ctrl+C) ends the session. All players' traffic passes through the host's computer and back out via Cloudflare. It's only a few KB/s, and the ping is a little higher than LAN.
+
+Everyone waits in the room's pilot list until the host presses **START**. Once a flight has launched the room is closed to newcomers.
+
 - **Co-op waves that scale with the crew:** each extra pilot adds +100% hostiles (2 pilots 2×, 3 pilots 3×, 4 pilots 4×) and makes upgrades 60% pricier (2 pilots 1.6×, 3 pilots 2.2×, 4 pilots 2.8×). The host's game runs the enemies and everyone sees the same ones. Each enemy hunts whichever pilot is closest.
 - **Fair hits:** each pilot's game decides whether enemy fire hits *their own* ship. Your hits on enemies go to the host, which applies the damage and credits the kill (and its score) to whoever made it.
 - **Shared economy:** wrecks appear for everyone and can be salvaged once. Scrap goes into one pool, and upgrades apply to every ship. Repairs and rearming use the shared pool but only fix your own ship.
@@ -59,7 +71,7 @@ Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's 
 - If a guest leaves, the flight carries on with the waves rescaled for who's left. If the host leaves, everyone else carries on solo.
 - **No free respawns:** when you're shot down you watch your wingmates. Click to switch who you follow. To bring you back, a living pilot docks at Kepler Station and spends **100 shared scrap** on your revive; you come back docked in your clamp. If every pilot is down at once, the run is over.
 - Pausing doesn't stop the shared world.
-- **To play from another computer on your network** without setting it up there, start the host's server with `./serve.sh --lan` and open the address it prints. The game can also be published with GitHub Pages: in the repo's Settings → Pages, choose *Deploy from a branch* → `main` / root. Then anyone can play from the link.
+- **To load the game from another computer on your network** without setting it up there, start the host's server with `./serve.sh --lan` and open the address it prints. The game can also be published with GitHub Pages: in the repo's Settings → Pages, choose *Deploy from a branch* → `main` / root. Then anyone can play from the link.
 
 ## Controls
 
@@ -116,7 +128,8 @@ Everyone opens the game and clicks **MULTIPLAYER**. Set your **callsign** (it's 
 - `src/station.js`: the orbital station and docking
 - `src/wrecks.js`: salvageable wrecks and scrap
 - `src/stationui.js`: upgrade definitions and the docked shop UI
-- `src/net.js`: peer-to-peer link (PeerJS / WebRTC), room codes, clock sync
+- `src/net.js`: multiplayer links (LAN: PeerJS / WebRTC; REMOTE: WebSocket to the host's relay), room codes, clock sync
+- `serve.py`: local web server, plus the REMOTE relay and Cloudflare tunnel (`--remote`)
 - `src/remote.js`: the other pilot: physics-based prediction and smoothing
 - `src/ships.js`: procedural ship models
 - `src/fx.js`: bolts, particles, trails, space dust

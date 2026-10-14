@@ -423,3 +423,18 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
   .title-kicker { margin-bottom: 6px; }
   .menu-footer { margin-top: 14px; }
 }
+
+/* multiplayer: LAN / REMOTE tabs */
+.lobby-tabs { display: flex; gap: 0; border: 1px solid var(--cyan-dim); pointer-events: auto; }
+.lobby-tabs button { pointer-events: auto; cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: 5px; padding: 10px 26px; color: rgba(217, 246, 255, 0.6); background: rgba(5, 20, 32, 0.55); border: none; transition: background 0.15s, color 0.15s; }
+.lobby-tabs button + button { border-left: 1px solid var(--cyan-dim); }
+.lobby-tabs button:hover { color: #fff; }
+.lobby-tabs button.on { background: var(--cyan); color: #001018; }
+.lobby-mode { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+.lobby-mode .lobby-hint { max-width: 420px; text-align: center; font-size: 14px; }
+.lobby-hint code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--cyan); background: rgba(94, 242, 255, 0.08); padding: 1px 5px; }
+.lobby-hint.small { font-size: 12px; min-height: 1em; color: #6dff9a; }
+.remote-code { pointer-events: auto; width: min(380px, 100%); font-family: ui-monospace, Menlo, monospace; font-size: 15px; letter-spacing: 1px; text-align: center; padding: 12px 14px; color: #fff; background: rgba(5, 20, 32, 0.7); border: 1px solid var(--cyan-dim); outline: none; }
+.remote-code:focus { border-color: var(--cyan); box-shadow: 0 0 14px rgba(94, 242, 255, 0.3); }
+.lobby-code { cursor: copy; }
+.lobby-code.long { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 18px; letter-spacing: 1px; word-break: break-all; max-width: 420px; text-align: center; }

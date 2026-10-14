@@ -177,7 +177,7 @@
         <p>Burn <b class="c">prograde</b> (toward the ⊕ marker) to raise the far side of your orbit. Burn <b class="o">retrograde</b> to drop toward the hole. Lower orbits move faster.</p>
         <p><b class="o">The hole is cover.</b> Nothing gets through it — not your bolts, not theirs, not a missile lock. Use it to break line of sight, or swing around it to catch a straggler on the far side. Stray too far out and a <b class="o">gravity wall</b> hauls you back in.</p>
         <p><b class="c">Salvage &amp; upgrades:</b> destroyed ships leave wrecks in orbit for 2 minutes. Fly within 75 m to salvage their scrap. Between waves you get 2 minutes — rendezvous with <b class="c">Kepler Station</b> (green marker). It holds a high, slow orbit. Get within 300 m while moving under 40 m/s relative to it and you dock automatically, or press <b class="c">B</b> and the docking assist will fly the rendezvous for you. Spare missiles double as <b class="c">salvage drones</b>: lock a wreck with E and fire, and the missile scoops up every wreck it flies through. Spend scrap on upgrades — but you can still be shot while docked.</p>
-        <p><b class="c">Multiplayer:</b> up to 4 pilots. Pick a callsign, host a room or join with its code, and the host starts the flight. Waves grow with the crew (+100% hostiles and +60% upgrade prices per extra pilot), enemies hunt whoever is closest, and scrap and upgrades are shared. Shot down? A wingmate must dock and spend 100 scrap to revive you. If everyone is down, the run ends. The station has a docking clamp for each of you.</p>
+        <p><b class="c">Multiplayer:</b> up to 4 pilots. Pick a callsign, then choose <b class="c">LAN</b> (same network: host a room or join with its code) or <b class="c">REMOTE</b> (any networks: the host runs <b>host-remote</b> from the game folder and shares the code it prints). The host starts the flight. Waves grow with the crew (+100% hostiles and +60% upgrade prices per extra pilot), enemies hunt whoever is closest, and scrap and upgrades are shared. Shot down? A wingmate must dock and spend 100 scrap to revive you. If everyone is down, the run ends. The station has a docking clamp for each of you.</p>
         <p><b class="c">Difficulty:</b> <b class="c">Easy</b> — enemies deal 35% less damage and you carry 3 missiles. <b>Normal</b> — 2 missiles. <b class="o">Hard</b> — enemies deal 30% more damage and you carry just 1 missile. In multiplayer the host picks it in the waiting room.</p>
         <p>The cyan line is your predicted path. If it turns <b class="r">red</b> and ends at the hole, burn prograde now.</p>
         <p><b class="o">Missiles:</b> press E with a hostile near your crosshair and hold it there until the lock completes, then press Q. They burn for 4 seconds, then fall ballistic and self-destruct — fire inside 1000 m.</p>
@@ -195,21 +195,37 @@
   <div id="lobby" class="overlay hidden">
     <div class="card center lobby">
       <h2>MULTIPLAYER</h2>
-      <div class="lobby-sub">Up to 4 pilots · peer-to-peer · same Wi-Fi or over the internet</div>
+      <div class="lobby-sub">Up to 4 pilots</div>
       <label class="callsign-row"><span class="lobby-label">CALLSIGN</span>
         <input id="callsign" maxlength="12" autocomplete="off" spellcheck="false" placeholder="YOUR NAME">
       </label>
       <div id="lobby-choose" class="lobby-choose">
-        <button id="btn-host" class="btn primary">HOST A GAME</button>
-        <div class="lobby-or">OR JOIN WITH A CODE</div>
-        <div class="lobby-join">
-          <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
-          <button id="btn-join" class="btn">JOIN</button>
+        <div class="lobby-tabs" role="tablist">
+          <button id="tab-lan" data-mode="lan" role="tab">LAN</button>
+          <button id="tab-remote" data-mode="remote" role="tab">REMOTE</button>
+        </div>
+        <div id="lobby-lan" class="lobby-mode">
+          <div class="lobby-hint">Everyone on the same network (same Wi-Fi). Direct connection, lowest lag.</div>
+          <button id="btn-host" class="btn primary">HOST A GAME</button>
+          <div class="lobby-or">OR JOIN WITH A CODE</div>
+          <div class="lobby-join">
+            <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            <button id="btn-join" class="btn">JOIN</button>
+          </div>
+        </div>
+        <div id="lobby-remote" class="lobby-mode hidden">
+          <div class="lobby-hint">Different networks. The host double-clicks <code>host-remote</code> in the game folder (or runs <code>./serve.sh --remote</code>) and shares the code it prints.</div>
+          <input id="remote-code" class="remote-code" placeholder="SHARE CODE" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <div class="lobby-join">
+            <button id="btn-remote-host" class="btn">HOST</button>
+            <button id="btn-remote-join" class="btn primary">JOIN</button>
+          </div>
+          <div id="remote-detected" class="lobby-hint small"></div>
         </div>
       </div>
       <div id="lobby-room" class="lobby-room hidden">
-        <div class="lobby-label">ROOM CODE</div>
-        <div id="lobby-code" class="lobby-code">-----</div>
+        <div id="lobby-code-label" class="lobby-label">ROOM CODE</div>
+        <div id="lobby-code" class="lobby-code" title="Click to copy">-----</div>
         <div class="lobby-label">PILOTS <span id="lobby-count">1 / 2</span></div>
         <div id="lobby-players" class="lobby-players"></div>
         <div id="lobby-diff" class="diff-picker lobby-diff">
