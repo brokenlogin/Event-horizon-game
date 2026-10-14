@@ -302,6 +302,171 @@ export function buildSeeker() {
 }
 
 // ---------------------------------------------------------------------------
+// Lancer: a long-range beam sniper. Twin prongs frame the emitter; a thin aim
+// line (the telegraph) shows where it's pointing while it charges.
+// ---------------------------------------------------------------------------
+export function buildLancer() {
+  const group = new THREE.Group();
+  const model = new THREE.Group();
+  group.add(model);
+  const m = enemyMaterials(0x2f5a4c, 0x3dff8a);
+  const zCyl = (rt, rb, len, seg, mat) => new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, len, seg).rotateX(Math.PI / 2), mat);
+
+  const spine = zCyl(0.35, 0.75, 6.5, 6, m.hull);
+  spine.position.z = 0.6;
+  model.add(spine);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.6, 6).rotateX(-Math.PI / 2), m.dark);
+  nose.position.z = -3.4;
+  model.add(nose);
+  const collar = zCyl(1.0, 1.0, 1.2, 6, m.dark);
+  collar.position.z = 1.4;
+  model.add(collar);
+  // twin prongs reaching forward past the nose
+  for (const sx of [1, -1]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.32, 3.6), m.dark);
+    arm.position.set(sx * 1.05, 0, -1.4);
+    arm.rotation.y = sx * -0.12;
+    model.add(arm);
+    const prong = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 2.6), m.hull);
+    prong.position.set(sx * 0.72, 0, -4.1);
+    model.add(prong);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.24, 0.3), m.glow);
+    tip.position.set(sx * 0.72, 0, -5.45);
+    model.add(tip);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.6, 1.4), m.dark);
+    fin.position.set(sx * 0.5, sx * 0.4, 2.6);
+    fin.rotation.z = sx * 0.6;
+    model.add(fin);
+  }
+  // the emitter between the prongs glows up as it charges
+  const emitterMat = new THREE.MeshBasicMaterial({ color: hdr(0x3dff8a, 2) });
+  const emitter = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 8), emitterMat);
+  emitter.position.z = -4.6;
+  model.add(emitter);
+  const emitterGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0x3dff8a, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+  emitterGlow.position.z = -4.6;
+  emitterGlow.scale.setScalar(4);
+  model.add(emitterGlow);
+  const flames = [];
+  addFlame(model, 0, 0, 3.9, 0.36, 0x3dff8a, flames);
+  model.scale.setScalar(1.25);
+
+  // aim line, in the unscaled group so its length is in metres
+  const telegraphGeo = new THREE.CylinderGeometry(0.12, 0.12, 1, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, -0.5);
+  const telegraph = new THREE.Mesh(telegraphGeo, new THREE.MeshBasicMaterial({
+    color: hdr(0x3dff8a, 2.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  telegraph.position.z = -5.8;
+  telegraph.scale.set(1, 1, 1400);
+  telegraph.visible = false;
+  telegraph.frustumCulled = false;
+  group.add(telegraph);
+
+  return { group, model, flames, mats: [m.hull, m.dark], radius: 3.6, emitter, emitterGlow, telegraph, muzzles: [new THREE.Vector3(0, 0, -5.8)] };
+}
+
+// ---------------------------------------------------------------------------
+// Sower: a slow, armoured mine-layer. A broad saucer with a ring of mine pods
+// and a dispenser chute at the back.
+// ---------------------------------------------------------------------------
+export function buildSower() {
+  const group = new THREE.Group();
+  const model = new THREE.Group();
+  group.add(model);
+  const m = enemyMaterials(0x6a4a2a, 0xff8a2a);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3.2, 1.3, 8), m.hull);
+  model.add(body);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), m.dark);
+  dome.position.y = 0.6;
+  model.add(dome);
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 8), m.glow);
+  eye.position.set(0, 0.7, -1.4);
+  model.add(eye);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(3.1, 0.12, 6, 32).rotateX(Math.PI / 2), m.glow);
+  model.add(rim);
+  const ringPivot = new THREE.Group();
+  model.add(ringPivot);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const pod = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0), m.dark);
+    pod.position.set(Math.cos(a) * 2.5, -0.75, Math.sin(a) * 2.5);
+    ringPivot.add(pod);
+    const light = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), m.glow);
+    light.position.set(Math.cos(a) * 2.5, -0.2, Math.sin(a) * 2.5);
+    ringPivot.add(light);
+  }
+  const chute = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 1.8), m.dark);
+  chute.position.set(0, -0.3, 2.9);
+  model.add(chute);
+  const flames = [];
+  addFlame(model, -1.2, 0, 3.0, 0.38, 0xff7a2a, flames);
+  addFlame(model, 1.2, 0, 3.0, 0.38, 0xff7a2a, flames);
+  model.scale.setScalar(1.25);
+  return { group, model, flames, mats: [m.hull, m.dark], radius: 4.4, ringPivot, muzzles: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Proximity mine: a spiked ball with a warning light.
+// ---------------------------------------------------------------------------
+const mineCore = new THREE.IcosahedronGeometry(1.0, 0);
+const mineSpike = new THREE.ConeGeometry(0.22, 1.0, 5);
+mineCore.userData.shared = mineSpike.userData.shared = true;   // every mine reuses these
+export function buildMine() {
+  const group = new THREE.Group();
+  const model = new THREE.Group();
+  group.add(model);
+  const m = enemyMaterials(0x4a3a30, 0xff5a2a);
+  model.add(new THREE.Mesh(mineCore, m.hull));
+  const dirs = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1], [0.6, 0.6, 0.6], [-0.6, -0.6, 0.6], [0.6, -0.6, -0.6], [-0.6, 0.6, -0.6]];
+  for (const d of dirs) {
+    const v = new THREE.Vector3(...d).normalize();
+    const spike = new THREE.Mesh(mineSpike, m.dark);
+    spike.position.copy(v).multiplyScalar(1.15);
+    spike.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v);
+    model.add(spike);
+  }
+  const light = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0xff3a2a, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  light.scale.setScalar(4.5);
+  group.add(light);
+  model.scale.setScalar(1.1);
+  return { group, model, flames: [], mats: [m.hull, m.dark], radius: 2.6, light, muzzles: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Aegis: an unarmed shield projector. A crystal core inside two gimballed
+// rings; it tethers itself to the ships it protects.
+// ---------------------------------------------------------------------------
+export function buildAegis() {
+  const group = new THREE.Group();
+  const model = new THREE.Group();
+  group.add(model);
+  const m = enemyMaterials(0x3a3a6a, 0x7a6bff);
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(1.3, 0), new THREE.MeshBasicMaterial({ color: hdr(0x8a7bff, 3) }));
+  core.scale.set(1, 1.5, 1);
+  model.add(core);
+  const shell = new THREE.Mesh(new THREE.OctahedronGeometry(1.7, 0), m.dark);
+  shell.scale.set(1, 1.5, 1);
+  shell.material = m.dark.clone();
+  shell.material.transparent = true;
+  shell.material.opacity = 0.55;
+  shell.material.userData.baseEmissive = m.dark.userData.baseEmissive;
+  model.add(shell);
+  const ringPivot = new THREE.Group();
+  model.add(ringPivot);
+  const r1 = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.14, 8, 48), m.glow);
+  ringPivot.add(r1);
+  const r1b = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.32, 6, 6), m.hull);
+  ringPivot.add(r1b);
+  const r2 = new THREE.Mesh(new THREE.TorusGeometry(2.3, 0.12, 8, 40), m.glow);
+  r2.rotation.x = Math.PI / 2;
+  ringPivot.add(r2);
+  const flames = [];
+  addFlame(model, 0, -2.4, 0.6, 0.3, 0x7a6bff, flames);
+  model.scale.setScalar(1.2);
+  return { group, model, flames, mats: [m.hull, m.dark, shell.material], radius: 4.2, ringPivot, core, muzzles: [] };
+}
+
+// ---------------------------------------------------------------------------
 // Dreadnought (boss): a hostile orbital fortress. Armoured hex hull, a
 // spinning reactor ring, twin launch tubes in the prow and six gun turrets,
 // each covering its own side of the hull. Built in metres, nose along -Z,

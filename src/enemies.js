@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { integrate, periapsisEstimate, accelAt, occludedByHole, circularSpeed, ARENA_RADIUS, RS } from './physics.js';
-import { buildRaider, buildWarden, buildSeeker, buildDreadnought } from './ships.js';
+import { buildRaider, buildWarden, buildSeeker, buildDreadnought, buildLancer, buildSower, buildMine, buildAegis } from './ships.js';
 import { Trail } from './fx.js';
 
 export const ENEMY_DEFS = {
@@ -17,6 +17,29 @@ export const ENEMY_DEFS = {
   seeker: {
     hp: 2, accel: 38, turn: 4.0, engageRange: 1200, preferred: 0, approach: 70,
     fireRange: 0, ramDamage: 34, score: 150, trailColor: 0xffb030, build: buildSeeker,
+  },
+  // wave 6+: a sniper that charges a beam. It aims where you'll be if you keep
+  // coasting, then locks for a second before firing, so any thrust then dodges it.
+  lancer: {
+    hp: 5, accel: 26, turn: 1.6, engageRange: 1400, preferred: 650, approach: 35,
+    weapon: 'beam', fireRange: 1100, charge: 2.5, lockAt: 1.35, beamDmg: 26, beamRange: 1500, cooldown: [4.5, 6.5],
+    score: 250, trailColor: 0x3dff8a, build: buildLancer,
+  },
+  // wave 8+: an armoured mine-layer; its mines drift along its orbit
+  sower: {
+    hp: 8, accel: 18, turn: 0.9, engageRange: 1100, preferred: 420, approach: 25,
+    weapon: 'mines', mineEvery: [3.5, 5], mineRange: 1000, maxMines: 6,
+    score: 300, trailColor: 0xff8a2a, build: buildSower,
+  },
+  mine: {
+    hp: 1, inert: true, noClear: true, noWreck: true, life: 45, arm: 1.5, trigger: 26, blast: 45, blastDmg: 24,
+    score: 25, trailColor: 0xff5a2a, build: buildMine,
+  },
+  // wave 11+: unarmed; ships near it take far less damage until it's destroyed
+  aegis: {
+    hp: 8, accel: 28, turn: 1.4, engageRange: 1400, preferred: 700, approach: 40,
+    weapon: 'none', support: true, shieldRange: 260, shieldMult: 0.35,
+    score: 300, trailColor: 0x7a6bff, build: buildAegis,
   },
   // boss: an orbital fortress that holds one low orbit, defended by six turrets and a seeker launcher
   dread: {
@@ -45,6 +68,37 @@ const _nv = new THREE.Vector3();
 const _render = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _qInv = new THREE.Quaternion();
+const _gA = new THREE.Vector3();
+const _gB = new THREE.Vector3();
+const _aim = new THREE.Vector3();
+
+// the bubble drawn around ships an aegis is protecting (shared by all of them)
+let shieldMat = null;
+function getShieldMaterial() {
+  if (shieldMat) return shieldMat;
+  shieldMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: /* glsl */`
+      varying vec3 vN; varying vec3 vV;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform float uTime; varying vec3 vN; varying vec3 vV;
+      void main() {
+        float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.5);
+        float flick = 0.85 + 0.15 * sin(uTime * 9.0 + vN.y * 6.0);
+        gl_FragColor = vec4(vec3(0.45, 0.42, 1.6) * rim * flick, 1.0);
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  shieldMat.userData.shared = true;
+  return shieldMat;
+}
+const shieldGeo = new THREE.SphereGeometry(1, 24, 16);
+shieldGeo.userData.shared = true;
 
 // network ids: the host numbers its enemies so guests can refer to them
 let nextNetId = 1;
@@ -61,6 +115,11 @@ export class Enemy {
     this.thrust = new THREE.Vector3();
     this.hp = this.def.hp;
     this.maxHp = this.def.hp;
+    this.charge = 0;         // lancer: 0 = idle, else 0..1 through the charge
+    this.locked = false;     // lancer: aim frozen (the last second before it fires)
+    this.lockQuat = new THREE.Quaternion();
+    this.shielded = false;   // protected by an aegis
+    this.noWreck = !!this.def.noWreck;
     this.alive = true;
     this.flash = 0;
     this.fireTimer = 1.5 + Math.random() * 2.5;
@@ -87,9 +146,75 @@ export class Enemy {
     this.mesh = built.group;
     this.radius = built.radius;
     scene.add(this.mesh);
-    this.trail = new Trail(scene, { segments: 36, width: this.def.boss ? 1.8 : type === 'warden' ? 0.9 : 0.5, color: this.def.trailColor, interval: 0.025 });
+    this.trail = new Trail(scene, { segments: 36, width: this.def.boss ? 1.8 : type === 'warden' || type === 'sower' ? 0.9 : 0.5, color: this.def.trailColor, interval: 0.025 });
+    if (this.def.inert) this.trail.mesh.visible = false;
     this.scene = scene;
     if (this.def.boss) this._initBoss();
+  }
+
+  // -------------------------------------------------------------------------
+  // Lancer: charge, lock, fire
+  // -------------------------------------------------------------------------
+  /** Where to aim so the beam meets `target` `T` seconds from now if it keeps coasting. */
+  _beamAim(target, T, out) {
+    out.subVectors(target.vel, this.vel).multiplyScalar(T).add(target.pos);
+    accelAt(target.pos, _gA).sub(accelAt(this.pos, _gB));
+    return out.addScaledVector(_gA, 0.5 * T * T);
+  }
+
+  updateCharge(dt, target, game, canFire, dist, faceTarget) {
+    const def = this.def;
+    if (this.charge > 0) {
+      if (!target.alive || occludedByHole(this.pos, target.pos, 1.3)) {
+        this.charge = 0;                       // lost the shot
+        this.locked = false;
+        this.fireTimer = 1.5;
+        return faceTarget;
+      }
+      this.charge += dt / def.charge;
+      const left = Math.max(0, (1 - this.charge) * def.charge);
+      if (this.charge * def.charge < def.lockAt) {
+        // tracking: steady itself and swing onto the firing solution
+        this.thrust.multiplyScalar(0.25);
+        return this._beamAim(target, left, _aim);
+      }
+      if (!this.locked) {
+        // lock: freeze the aim on the exact solution, and drift (no thrust) so it holds
+        this.locked = true;
+        this._beamAim(target, left, _aim);
+        _up.set(0, 1, 0).applyQuaternion(this.quat);
+        _m.lookAt(this.pos, _aim, _up);
+        this.lockQuat.setFromRotationMatrix(_m);
+      }
+      this.thrust.set(0, 0, 0);
+      if (this.charge >= 1) {
+        this.quat.copy(this.lockQuat);
+        game.lancerFire(this);
+        this.charge = 0;
+        this.locked = false;
+        const [a, b] = def.cooldown;
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.05);
+      }
+      return faceTarget;
+    }
+    this.fireTimer -= dt;
+    if (canFire && this.fireTimer <= 0 && dist < def.fireRange && this.age > 2) {
+      this.charge = 1e-4;
+      this.locked = false;
+    }
+    return faceTarget;
+  }
+
+  /** Aegis protection on/off (bubble drawn around the ship). */
+  setShielded(on) {
+    if (on === this.shielded) return;
+    this.shielded = on;
+    if (on && !this.shieldMesh) {
+      this.shieldMesh = new THREE.Mesh(shieldGeo, getShieldMaterial());
+      this.shieldMesh.scale.setScalar(this.radius * 1.6);
+      this.mesh.add(this.shieldMesh);
+    }
+    if (this.shieldMesh) this.shieldMesh.visible = on;
   }
 
   // -------------------------------------------------------------------------
@@ -275,6 +400,7 @@ export class Enemy {
   think(dt, player, game) {
     if (this.def.boss) { this.thinkBoss(dt, game); return; }
     const def = this.def;
+    if (def.inert) { this.age += dt; this.thrust.set(0, 0, 0); this.throttle = 0; return; }   // mines just orbit
     this.age += dt;
     this.thrust.set(0, 0, 0);
     const r = this.pos.length();
@@ -313,6 +439,24 @@ export class Enemy {
       // drifted too far: kill outward velocity, head back in
       _des.copy(this.pos).normalize().multiplyScalar(-35).sub(_tmp2.copy(this.vel).projectOnVector(this.pos)).clampLength(0, 1).multiplyScalar(accel);
       this.thrust.copy(_des);
+    } else if (def.support) {
+      // aegis: shadow the nearest ally, keeping it between us and the pilot
+      const ally = game.supportTarget(this);
+      if (ally) {
+        _aim.subVectors(ally.pos, player.pos).normalize().multiplyScalar(90).add(ally.pos);
+        _des.subVectors(_aim, this.pos);
+        const d = _des.length();
+        _des.multiplyScalar(Math.min(60, d * 0.5) / Math.max(d, 1e-3));
+        _des.sub(_tmp2.subVectors(this.vel, ally.vel)).multiplyScalar(0.9);
+        _des.add(accelAt(ally.pos, _gA).sub(accelAt(this.pos, _gB)));
+        this.thrust.copy(_des).clampLength(0, accel);
+        faceTarget = _tmp2.copy(ally.pos);
+      } else if (player.alive) {
+        // alone: keep its distance
+        _des.copy(dirP).multiplyScalar(THREE.MathUtils.clamp((dist - def.preferred) * 0.3, -40, 30));
+        _des.sub(_rel).multiplyScalar(0.8).add(gDiff);
+        this.thrust.copy(_des).clampLength(0, accel);
+      }
     } else if (engaged) {
       if (this.type === 'seeker') {
         // pure pursuit with relative-velocity steering; it overshoots and can be dodged
@@ -331,7 +475,7 @@ export class Enemy {
         _des.sub(_rel).multiplyScalar(0.9).add(gDiff);
         this.thrust.copy(_des).clampLength(0, accel);
         // aim with an imperfect lead and a per-burst aiming error (see rollAim)
-        const t = (dist / def.boltSpeed) * this.leadFactor;
+        const t = def.boltSpeed ? (dist / def.boltSpeed) * this.leadFactor : 0;   // gunless types just face you
         faceTarget = _tmp2.copy(player.pos).addScaledVector(player.vel, t).addScaledVector(this.vel, -t).add(this.aimErr);
       }
     } else if (player.alive) {
@@ -340,16 +484,31 @@ export class Enemy {
       this.thrust.copy(_des);
     }
 
-    // turn toward target (or along velocity when idle)
-    if (!faceTarget) faceTarget = _tmp2.copy(this.pos).add(this.vel);
-    _up.set(0, 1, 0).applyQuaternion(this.quat);
-    _m.lookAt(this.pos, faceTarget, _up);
-    _tq.setFromRotationMatrix(_m);
-    this.quat.rotateTowards(_tq, def.turn * dt);
+    if (def.weapon === 'beam') faceTarget = this.updateCharge(dt, player, game, engaged && !blocked, dist, faceTarget);
+
+    // turn toward target (or along velocity when idle); a locked lancer holds its aim
+    if (this.locked) {
+      this.quat.copy(this.lockQuat);
+    } else {
+      if (!faceTarget) faceTarget = _tmp2.copy(this.pos).add(this.vel);
+      _up.set(0, 1, 0).applyQuaternion(this.quat);
+      _m.lookAt(this.pos, faceTarget, _up);
+      _tq.setFromRotationMatrix(_m);
+      this.quat.rotateTowards(_tq, def.turn * dt);
+    }
     this.throttle = this.thrust.length() / accel;
 
-    // weapons
-    if (this.type !== 'seeker' && engaged && !blocked) {
+    if (def.weapon === 'mines') {
+      this.fireTimer -= dt;
+      if (this.fireTimer <= 0 && player.alive && dist < def.mineRange && this.age > 2) {
+        const [a, b] = def.mineEvery;
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);
+        game.layMine(this);
+      }
+    }
+
+    // guns
+    if (!def.weapon && this.type !== 'seeker' && engaged && !blocked) {
       this.fireTimer -= dt;
       const fwd = this.forward;
       const aimDir = _tmp.subVectors(faceTarget, this.pos).normalize();
@@ -386,6 +545,10 @@ export class Enemy {
     this.targetQuat.fromArray(s.q);
     this.hp = s.hp;
     if (s.mhp) this.maxHp = s.mhp;
+    if (this.def.weapon === 'beam') {
+      this.charge = s.ch || 0;
+      this.locked = this.charge * this.def.charge >= this.def.lockAt;
+    }
     this.throttle = s.th;
     let dt = Math.min(Math.max(now - s.t, 0), 0.6);
     while (dt > 1e-6) {
@@ -424,7 +587,28 @@ export class Enemy {
       f.mat.uniforms.uIntensity.value = 0.5 + this.throttle;
       f.glow.material.opacity = 0.5 + this.throttle * 0.5;
     }
-    if (this.built.ringPivot) this.built.ringPivot.rotation.z += dt * (this.def.boss ? 0.25 : 0.8);
+    if (this.proxy) this.age += dt;          // hosts age enemies in think(); proxies here
+    if (this.built.ringPivot) {
+      if (this.type === 'sower') this.built.ringPivot.rotation.y += dt * 0.7;
+      else if (this.type === 'aegis') { this.built.ringPivot.rotation.x += dt * 1.1; this.built.ringPivot.rotation.y += dt * 0.7; }
+      else this.built.ringPivot.rotation.z += dt * (this.def.boss ? 0.25 : 0.8);
+    }
+    if (this.type === 'lancer') {
+      const b = this.built;
+      const c = this.charge;
+      b.emitterGlow.material.opacity = c > 0 ? 0.3 + 0.7 * c : 0;
+      b.emitter.scale.setScalar(1 + c * 1.6);
+      b.telegraph.visible = c > 0;
+      if (c > 0) b.telegraph.material.opacity = this.locked ? ((time * 14) % 1 < 0.5 ? 0.95 : 0.45) : 0.06 + 0.22 * (c * this.def.charge / this.def.lockAt);
+    } else if (this.type === 'mine') {
+      const armed = this.age > this.def.arm;
+      const rate = this.alert ? 7 : armed ? 2 : 0.7;
+      this.built.light.material.opacity = (time * rate + this.phase) % 1 < 0.35 ? 1 : armed ? 0.15 : 0.05;
+      this.built.model.rotation.y += dt * 0.6;
+    } else if (this.type === 'aegis') {
+      this.built.core.scale.set(1, 1.5, 1).multiplyScalar(1 + Math.sin(time * 4 + this.phase) * 0.12);
+    }
+    if (this.shieldMesh && this.shielded) shieldMat.uniforms.uTime.value = time;
     if (this.turrets) {
       // turret heads hold their world aim while the hull turns under them
       _qInv.copy(this.quat).invert();
@@ -446,7 +630,7 @@ export class Enemy {
       this.mesh.scale.setScalar(Math.max(0.01, s * s * (3 - 2 * s)));
     }
     _tmp.set(0, 0, 1).applyQuaternion(this.quat).multiplyScalar(this.def.boss ? 40 : this.type === 'warden' ? 3.4 : 1.9).add(this.mesh.position);
-    if (this.def.boss) this.trail.mesh.visible = false;   // its engine plume is enough; a 90 m trail reads as a laser
+    if (this.def.boss || this.def.inert) this.trail.mesh.visible = false;   // the boss's plume is enough; mines have none
     else this.trail.update(dt, _tmp, camPos, 0.35 + this.throttle * 0.9);
   }
 
@@ -459,7 +643,7 @@ export class Enemy {
       if (o.geometry && !o.isSprite && !o.geometry.userData.shared) o.geometry.dispose();
       if (o.material) mats.add(o.material);
     });
-    for (const m of mats) m.dispose();
+    for (const m of mats) if (!m.userData.shared) m.dispose();
   }
 }
 

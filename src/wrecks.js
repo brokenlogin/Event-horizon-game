@@ -7,10 +7,10 @@ import { buildWreck } from './ships.js';
 // Fly within COLLECT_RANGE to salvage its scrap. Wrecks fade after 2 minutes.
 // ---------------------------------------------------------------------------
 
-export const SCRAP_VALUE = { raider: 12, seeker: 8, warden: 35, dread: 150 };
+export const SCRAP_VALUE = { raider: 12, seeker: 8, warden: 35, dread: 150, lancer: 20, sower: 25, aegis: 30 };
 export const COLLECT_RANGE = 75;
 const WRECK_LIFE = 120;
-const GLOW = { raider: 0xff4a2a, seeker: 0xffb030, warden: 0xc040ff, dread: 0xff2a3c };
+const GLOW = { raider: 0xff4a2a, seeker: 0xffb030, warden: 0xc040ff, dread: 0xff2a3c, lancer: 0x3dff8a, sower: 0xff8a2a, aegis: 0x7a6bff };
 
 const _v = new THREE.Vector3();
 

@@ -313,8 +313,9 @@ const game = {
   warnBeep: 0, proximityBeep: 0, plasmaFx: 0,
   scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   mp: false,
-  bumpCd: 0, clearHold: 0,
-  enemyFire, turretFire, bossLaunch, nearestPilot,
+  bumpCd: 0, clearHold: 0, chargeBeep: 0,
+  enemyFire, turretFire, bossLaunch, nearestPilot, lancerFire, layMine, supportTarget,
+  seenTypes: new Set(),
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
 const DIFFICULTIES = {
@@ -458,14 +459,23 @@ const BOSS_EVERY = 5;
 const BOSS_ORBIT = 1350;
 const isBossWave = (n) => n > 0 && n % BOSS_EVERY === 0;
 
+/** Enemies that have to die to clear a wave (mines don't count). */
+function hostileCount() {
+  let n = 0;
+  for (const e of game.enemies) if (e.alive && !e.def.noClear) n++;
+  return n;
+}
+
 function waveComposition(n) {
   const list = [];
   const k = enemyScale();
   if (isBossWave(n)) {
     const raiders = Math.max(1, Math.round(Math.min(2 + n, 9) * k * 0.4));
     const seekers = Math.round(Math.min(Math.floor(n / 1.5), 6) * k * 0.35);
+    const lancers = n >= 10 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k * 0.4) : 0;
     for (let i = 0; i < raiders; i++) list.push('raider');
     for (let i = 0; i < seekers; i++) list.push('seeker');
+    for (let i = 0; i < lancers; i++) list.push('lancer');
     for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
     list.unshift('dread');   // the fortress arrives first
     return list;
@@ -473,9 +483,16 @@ function waveComposition(n) {
   const raiders = Math.round(Math.min(2 + n, 9) * k);
   const seekers = n >= 2 ? Math.round(Math.min(Math.floor(n / 1.5), 6) * k) : 0;
   const wardens = n >= 3 ? Math.round(Math.min(Math.floor((n - 1) / 2), 4) * k) : 0;
+  // after the first boss, new types join one at a time
+  const lancers = n >= 6 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k) : 0;       // 6: 1, 8: 2 … up to 4
+  const sowers = n >= 8 ? Math.round(Math.min(Math.floor((n - 6) / 2), 3) * k) : 0;        // 8: 1, 10: 2 … up to 3
+  const aegis = n >= 11 ? Math.round(Math.min(1 + Math.floor((n - 11) / 4), 2) * k) : 0;   // 11: 1, 15: 2
   for (let i = 0; i < raiders; i++) list.push('raider');
   for (let i = 0; i < seekers; i++) list.push('seeker');
   for (let i = 0; i < wardens; i++) list.push('warden');
+  for (let i = 0; i < lancers; i++) list.push('lancer');
+  for (let i = 0; i < sowers; i++) list.push('sower');
+  for (let i = 0; i < aegis; i++) list.push('aegis');
   // shuffle
   for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
   return list;
@@ -488,11 +505,32 @@ function startWave(n) {
   game.waveActive = true;
   const restocked = missiles.ammo < missiles.capacity;
   missiles.refill();
-  waveBanner(n, game.spawnQueue.length, restocked);
-  if (game.mp) net.sendEvent({ k: 'waveStart', n, count: game.spawnQueue.length });
+  const fresh = newContacts(game.spawnQueue);
+  waveBanner(n, game.spawnQueue.length, restocked, fresh);
+  if (game.mp) net.sendEvent({ k: 'waveStart', n, count: game.spawnQueue.length, nt: fresh });
 }
 
-function waveBanner(n, count, restocked) {
+// The first time a new kind of enemy shows up in a run, the wave banner explains it.
+const NEW_CONTACT = {
+  lancer: ['LANCER', 'IT CHARGES A BEAM · WHEN ITS GREEN AIM LINE FLASHES, THRUST ACROSS IT TO DODGE'],
+  sower: ['SOWER', 'IT SEEDS PROXIMITY MINES ALONG ITS ORBIT · SHOOT THEM FROM A DISTANCE'],
+  aegis: ['AEGIS', 'IT SHIELDS NEARBY SHIPS (−65% DAMAGE) · TAKE IT OUT FIRST'],
+};
+function newContacts(queue) {
+  const fresh = [];
+  for (const t of Object.keys(NEW_CONTACT)) if (queue.includes(t) && !game.seenTypes.has(t)) fresh.push(t);
+  for (const t of fresh) game.seenTypes.add(t);
+  return fresh;
+}
+
+function waveBanner(n, count, restocked, fresh = []) {
+  fresh = fresh.filter((t) => NEW_CONTACT[t]);
+  if (fresh.length && !isBossWave(n)) {
+    hud.banner(`WAVE ${n} · NEW CONTACT: ${fresh.map((t) => NEW_CONTACT[t][0]).join(' + ')}`, fresh.map((t) => NEW_CONTACT[t][1]).join('  ·  '), 5200);
+    audio.waveStart();
+    audio.alarm();
+    return;
+  }
   if (isBossWave(n)) {
     hud.banner(`WAVE ${n} · DREADNOUGHT`, `ENEMY FORTRESS ON A LOW ORBIT · KNOCK OUT ITS TURRETS · WATCH FOR LAUNCHED SEEKERS${restocked ? ' · MISSILES REARMED' : ''}`, 4200);
     audio.waveStart();
@@ -700,6 +738,39 @@ function enemyFireFx(muzzle, vel, heavy) {
 }
 const _q1Vec = new THREE.Vector3();
 
+const KILL_FX = {
+  raider: [1.15, [1.0, 0.42, 0.12]], warden: [1.8, [1.0, 0.35, 1.0]], seeker: [0.9, [1.0, 0.7, 0.15]],
+  lancer: [1.2, [0.45, 1.0, 0.55]], sower: [1.7, [1.0, 0.55, 0.15]], aegis: [1.6, [0.6, 0.55, 1.0]],
+  dread: [3.2, [1.0, 0.35, 0.2]],
+};
+
+/**
+ * A mine goes off (shot, triggered, or the wave ended). Its blast hurts any
+ * pilot close by; each pilot's game checks its own ship.
+ */
+function mineBlast(e, cause, by) {
+  if (cause === 'void' || cause === 'horizon' || cause === 'fizzle') {
+    if (cause === 'fizzle') sparks(e.pos, e.vel, 14, 1.2, 0.5, 0.2, 12);
+    e.destroy();
+    return;
+  }
+  const def = e.def;
+  explode(e.pos, e.vel, 1.3, [1.0, 0.45, 0.15]);
+  const d = player.pos.distanceTo(e.pos);
+  audio.explosion(1.2, THREE.MathUtils.clamp(1.4 - d / 700, 0.15, 1));
+  if (player.alive && d < def.blast) {
+    damagePlayer(def.blastDmg * (1 - 0.5 * d / def.blast) * diffDef().dmg, { cause: 'CAUGHT IN A MINE BLAST' });
+    game.trauma = Math.min(1, game.trauma + 0.5);
+  }
+  if ((cause === 'player' || cause === 'missile') && (by === net.myId || !game.mp)) {
+    game.score += def.score;
+    hud.hitmarker(true);
+    hud.project(e.pos, camera, scr);
+    if (scr.onScreen) hud.popup(scr.x, scr.y, `+${def.score}`, 'MINE CLEARED');
+  }
+  e.destroy();
+}
+
 /**
  * Destroy an enemy. `by` is the pilot credited (multiplayer); only that pilot's
  * game scores it. The host decides kills and tells everyone; guests replay them.
@@ -711,9 +782,9 @@ function killEnemy(e, cause, by = net.myId, fromHost = false) {
     net.sendEvent({ k: 'kill', id: e.netId, y: ENEMY_TYPES.indexOf(e.type), cause, by, p: r2(e.pos), v: r2(e.vel), nw: e.noWreck ? 1 : 0 });
   }
   if (isGuest()) mp.deadIds.add(e.netId);
+  if (e.def.inert) { mineBlast(e, cause, by); return; }
   const boss = !!e.def.boss;
-  const scale = boss ? 3.2 : e.type === 'warden' ? 1.8 : e.type === 'seeker' ? 0.9 : 1.15;
-  const tint = boss ? [1.0, 0.35, 0.2] : e.type === 'warden' ? [1.0, 0.35, 1.0] : e.type === 'seeker' ? [1.0, 0.7, 0.15] : [1.0, 0.42, 0.12];
+  const [scale, tint] = KILL_FX[e.type] || KILL_FX.raider;
   if (boss && cause !== 'void') bossDeathFx(e);
   const dist = e.pos.distanceTo(player.pos);
   if (cause === 'void') { e.destroy(); return; }
@@ -750,6 +821,156 @@ function killEnemy(e, cause, by = net.myId, fromHost = false) {
   e.destroy();
 }
 
+// ---------------------------------------------------------------------------
+// Lancer beams. The host's lancer fires; every pilot's game draws the beam and
+// checks whether it hit their own ship.
+// ---------------------------------------------------------------------------
+const beamPool = [];
+const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true).rotateX(Math.PI / 2).translate(0, 0, -0.5);
+for (let i = 0; i < 6; i++) {
+  const outer = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(0x3dff8a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const inner = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 1, 1).multiplyScalar(4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const g = new THREE.Group();
+  g.add(outer, inner);
+  g.visible = false;
+  g.userData = { t: 0, outer, inner };
+  outer.frustumCulled = inner.frustumCulled = false;
+  scene.add(g);
+  beamPool.push(g);
+}
+function updateBeams(dt) {
+  for (const g of beamPool) {
+    if (!g.visible) continue;
+    g.userData.t -= dt;
+    const k = Math.max(0, g.userData.t / 0.4);
+    if (k <= 0) { g.visible = false; continue; }
+    g.userData.outer.material.opacity = k * 0.8;
+    g.userData.inner.material.opacity = k;
+    const w = 0.4 + 1.6 * k;
+    g.userData.outer.scale.set(w * 1.6, w * 1.6, g.userData.len);
+    g.userData.inner.scale.set(w * 0.45, w * 0.45, g.userData.len);
+  }
+}
+
+/** Length of a beam before the hole swallows it. */
+function beamLength(o, d, max) {
+  const t = -o.dot(d);                          // closest approach to the singularity
+  const reach = RS * 1.5;
+  if (t > 0 && t < max) {
+    const c2 = o.lengthSq() - t * t;
+    if (c2 < reach * reach) return Math.max(0, t - Math.sqrt(reach * reach - c2));
+  }
+  return max;
+}
+
+function fireBeam(origin, dir, len, dmg) {
+  const g = beamPool.find((b) => !b.visible) || beamPool[0];
+  g.visible = true;
+  g.userData.t = 0.4;
+  g.userData.len = len;
+  g.position.copy(origin);
+  g.quaternion.setFromUnitVectors(_v1.set(0, 0, -1), dir);
+  for (let i = 0; i < 30; i++) {
+    randDir(_v3);
+    particles.emit(origin.x, origin.y, origin.z, _v3.x * 20, _v3.y * 20, _v3.z * 20, 0.6, 2.0, 0.9, 1.2, 1.5, 0.4, false);
+  }
+  const light = flashLights[flashIdx];
+  flashIdx = (flashIdx + 1) % flashLights.length;
+  light.position.copy(origin);
+  light.userData.t = 1;
+  light.userData.peak = 900;
+  light.userData.vel = null;
+  // did it hit this pilot's ship?
+  _v2.subVectors(player.pos, origin);
+  const t = THREE.MathUtils.clamp(_v2.dot(dir), 0, len);
+  const miss = _v2.addScaledVector(dir, -t).length();
+  audio.beam(THREE.MathUtils.clamp(1.4 - Math.min(miss, origin.distanceTo(player.pos)) / 900, 0.1, 1));
+  if (!player.alive) return;
+  if (miss < player.radius + 0.8) {
+    damagePlayer(dmg * diffDef().dmg, { cause: 'BURNED BY A LANCER BEAM' });
+    game.trauma = 1;
+    sparks(player.pos, player.vel, 30, 0.6, 2.0, 0.9, 30);
+  } else if (miss < 25) {
+    hud.notice('BEAM NEAR MISS', 'dim');
+  }
+}
+
+function lancerFire(e) {
+  const dir = forwardOf(e.quat, new THREE.Vector3());
+  const origin = e.pos.clone().addScaledVector(dir, 7.2);
+  const len = beamLength(origin, dir, e.def.beamRange);
+  fireBeam(origin, dir, len, e.def.beamDmg);
+  if (game.mp) net.sendEvent({ k: 'beam', p: r2(origin), d: [dir.x, dir.y, dir.z].map((x) => Math.round(x * 1e5) / 1e5), l: Math.round(len), dmg: e.def.beamDmg });
+}
+
+/** A sower drops a mine behind it (host / solo); capped per sower. */
+function layMine(s) {
+  let out = 0;
+  for (const x of game.enemies) if (x.alive && x.owner === s.netId) out++;
+  if (out >= s.def.maxMines) return;
+  const m = new Enemy('mine', scene, game.wave - 1);
+  m.owner = s.netId;
+  const back = forwardOf(s.quat, _v1).negate();
+  m.pos.copy(s.pos).addScaledVector(back, 6);
+  m.vel.copy(s.vel).addScaledVector(back, 5);
+  randDir(_v2);
+  m.vel.addScaledVector(_v2, 1.5);
+  m.mesh.position.copy(m.pos);
+  m.mesh.scale.setScalar(0.3);
+  m.spawnFx = 0.7;
+  game.enemies.push(m);
+  for (let i = 0; i < 10; i++) {
+    randDir(_v3);
+    particles.emit(m.pos.x, m.pos.y, m.pos.z, m.vel.x + _v3.x * 4, m.vel.y + _v3.y * 4, m.vel.z + _v3.z * 4, 1.2, 0.5, 0.2, 0.8, 1.2, 0.5, false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Aegis: ships within range of one take reduced damage; tethers show which.
+// ---------------------------------------------------------------------------
+const AEGIS_MULT = 0.35;
+function supportTarget(a) {
+  let best = null, bd = 1500 * 1500;
+  for (const e of game.enemies) {
+    if (!e.alive || e === a || e.def.support || e.def.inert || e.def.boss) continue;
+    const d = e.pos.distanceToSquared(a.pos);
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
+const MAX_TETHERS = 48;
+const tetherGeo = new THREE.BufferGeometry();
+tetherGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_TETHERS * 6), 3));
+const tethers = new THREE.LineSegments(tetherGeo, new THREE.LineBasicMaterial({
+  color: new THREE.Color(0x7a6bff).multiplyScalar(2.5), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false,
+}));
+tethers.frustumCulled = false;
+scene.add(tethers);
+const _tA = new THREE.Vector3();
+function updateAegis(time) {
+  const P = tetherGeo.attributes.position.array;
+  let n = 0;
+  for (const e of game.enemies) {
+    if (!e.alive) continue;
+    let by = null;
+    if (!e.def.support && !e.def.inert && !e.def.boss) {
+      for (const a of game.enemies) {
+        if (a.alive && a.def.support && a.pos.distanceTo(e.pos) < a.def.shieldRange) { by = a; break; }
+      }
+    }
+    e.setShielded(!!by);
+    if (by && n < MAX_TETHERS) {
+      _tA.copy(by.renderPos);
+      const b = e.renderPos;
+      P.set([_tA.x, _tA.y, _tA.z, b.x, b.y, b.z], n * 6);
+      n++;
+    }
+  }
+  tetherGeo.setDrawRange(0, n * 2);
+  tetherGeo.attributes.position.needsUpdate = true;
+  tethers.material.opacity = 0.45 + 0.25 * Math.sin(time * 6);
+}
+
 // ===========================================================================
 // Player actions
 // ===========================================================================
@@ -757,7 +978,8 @@ function hitEnemy(e, dmg, point, cause = 'player', by = net.myId) {
   if (!e.alive) return;
   if (by === net.myId) {
     e.flash = 1;
-    sparks(point, e.vel, 10, 0.5, 1.6, 2.2, 30);
+    if (e.shielded) sparks(point, e.vel, 12, 0.8, 0.7, 2.6, 24);   // deflected off an aegis shield
+    else sparks(point, e.vel, 10, 0.5, 1.6, 2.2, 30);
     audio.hitConfirm();
   }
   if (isGuest()) {
@@ -766,7 +988,7 @@ function hitEnemy(e, dmg, point, cause = 'player', by = net.myId) {
     hud.hitmarker(false);
     return;
   }
-  e.hp -= dmg;
+  e.hp -= dmg * (e.shielded ? AEGIS_MULT : 1);
   if (by !== net.myId) e.flash = 1;
   if (e.hp <= 0) killEnemy(e, cause, by);
   else if (by === net.myId) hud.hitmarker(false);
@@ -918,7 +1140,7 @@ const stationUI = new StationUI({
   ammo: missiles.ammo, capacity: missiles.capacity,
   waveTimer: game.waveTimer, waveActive: game.waveActive, mp: game.mp,
   costMult: costScale(), dead: fallenPilots(),
-  hostiles: game.enemies.length + game.spawnQueue.length, underAttack: game.underAttack > 0,
+  hostiles: hostileCount() + game.spawnQueue.length, underAttack: game.underAttack > 0,
 }), audio);
 
 function callNextWave() {
@@ -1126,6 +1348,7 @@ function startGame(opts = {}) {
   resetEnemyIds();
   game.bumpCd = 0;
   game.clearHold = 0;
+  game.seenTypes = new Set();
   mp.deadIds.clear();
   station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // slow, thruster-held orbit
   if (multiplayer) syncStation();
@@ -1373,9 +1596,12 @@ function updatePlayerControl(dt) {
 
 }
 
+const NANITE_RATE = 0.0075;   // fraction of max hull repaired per second, per Nanite Repair level
+
 function updateShields(dt) {
   player.shieldDelay -= dt;
   if (player.shieldDelay <= 0) player.shield = Math.min(SHIELD_MAX, player.shield + shieldRegenRate() * dt);
+  if (game.levels.repair) player.hull = Math.min(player.maxHull, player.hull + player.maxHull * NANITE_RATE * game.levels.repair * dt);
   if (player.docked || player.docking) {
     player.heat = Math.max(0, player.heat - dt * 0.5);
     if (player.heat < 0.3) player.overheated = false;
@@ -1462,9 +1688,21 @@ function physicsStep(h) {
     if (!guest) {
       if (r < RS * 1.05) { killEnemy(e, 'horizon'); continue; }
       if (r > ARENA_RADIUS * 2.5) { killEnemy(e, 'void'); continue; }
+      if (e.def.inert && e.age > e.def.life) { killEnemy(e, 'fizzle'); continue; }
     }
     if (!player.alive) continue;
     if (e.def.boss) { if (!player.docked && !player.docking) bossCollision(e); continue; }
+    if (e.def.inert) {
+      // mines: each pilot's game sets off the ones it flies into
+      const md = e.pos.distanceTo(player.pos);
+      const armed = e.age > e.def.arm;
+      e.alert = armed && md < 150;
+      if (armed && md < e.def.trigger + player.radius) {
+        if (guest) { e.rammed = true; net.sendEvent({ k: 'ram', id: e.netId, cause: 'mine' }); }
+        else killEnemy(e, 'mine');
+      }
+      continue;
+    }
     const d = e.pos.distanceTo(player.pos);
     const seekerHit = e.type === 'seeker' && d < player.radius + e.radius + 2.5;
     const bump = d < player.radius + e.radius * 0.8;
@@ -1809,7 +2047,8 @@ function tick(rawDt, render) {
           spawnEnemy(game.spawnQueue.shift());
           game.spawnTimer = 0.55;
         }
-      } else if (game.waveActive && game.enemies.length === 0 && (game.clearHold -= dt) <= 0) {
+      } else if (game.waveActive && hostileCount() === 0 && (game.clearHold -= dt) <= 0) {
+        for (const e of game.enemies) if (e.alive && e.def.noClear) killEnemy(e, 'fizzle');   // leftover mines
         game.waveActive = false;
         game.waveTimer = INTERMISSION;
         waveClearedFx(game.wave);
@@ -1825,6 +2064,8 @@ function tick(rawDt, render) {
     for (const e of game.enemies) e.updateVisual(dt, camera.position, visualTime);
     missiles.update(dt, camera.position, visualTime);
     updateBossBlasts(dt);
+    updateBeams(dt);
+    updateAegis(visualTime);
     particles.update(dt);
     updateEffects(dt);
     if (player.docked && player.alive) updateDockCamera(rawDt);
@@ -1855,6 +2096,29 @@ function tick(rawDt, render) {
       if (player.hull < 30) warnings.push({ text: 'HULL CRITICAL', color: 'red' });
       let seekerNear = false;
       for (const e of game.enemies) if (e.type === 'seeker' && e.pos.distanceTo(player.pos) < 140) seekerNear = true;
+      let mineNear = false;
+      for (const e of game.enemies) if (e.alive && e.def.inert && e.alert) mineNear = true;
+      if (mineNear) warnings.push({ text: 'MINE PROXIMITY', color: 'orange' });
+      // a lancer charging at you: its aim line points at your ship
+      let lancer = null, lancerLocked = false;
+      for (const e of game.enemies) {
+        if (!e.alive || e.type !== 'lancer' || e.charge <= 0) continue;
+        _v1.subVectors(player.pos, e.renderPos);
+        const d = _v1.length();
+        if (d > 1600) continue;
+        const off = _v2.copy(forwardOf(e.quat, _v3)).cross(_v1.divideScalar(d)).length() * d;   // miss distance along the aim line
+        if (off < 40 && forwardOf(e.quat, _v3).dot(_v1) > 0) { lancer = e; lancerLocked = lancerLocked || e.locked; }
+      }
+      if (lancer) {
+        warnings.unshift(lancerLocked
+          ? { text: '⚠ BEAM LOCKED — THRUST ACROSS ITS AIM', color: 'red' }
+          : { text: 'LANCER CHARGING ON YOU', color: 'orange' });
+        game.chargeBeep -= dt;
+        if (game.chargeBeep <= 0) {
+          audio.chargeTick(lancer.charge, 1, lancerLocked);
+          game.chargeBeep = lancerLocked ? 0.09 : 0.22;
+        }
+      }
       if (seekerNear) {
         warnings.push({ text: 'PROXIMITY ALERT — SEEKER', color: 'orange' });
         game.proximityBeep -= dt;
@@ -1877,7 +2141,7 @@ function tick(rawDt, render) {
         eta: dockAssist.eta, burning: player.throttle > 0.1, intercept: dockAssist.station === bossPark,
       } : null);
       if (player.docked) stationUI.render();
-      hud.setScore(game.score, game.wave, game.mult, game.enemies.length + game.spawnQueue.length);
+      hud.setScore(game.score, game.wave, game.mult, hostileCount() + game.spawnQueue.length);
       if (inDock) hideNavMarkers();
       else updateNavMarkers();
       hud.setMissiles(missiles.ammo, missiles.capacity, missiles.lockInfo, camera);
@@ -1976,7 +2240,10 @@ function renderDebug() {
   document.getElementById('dbg-rows').innerHTML = debugRows.map((r) => {
     const v = dbgValue(r);
     const shown = r.upgrade ? `${v} / ${r.max}` : v;
-    const sub = r.key === 'wave' ? (isBossWave(v) ? 'DREADNOUGHT WAVE' : `next boss: wave ${Math.ceil(v / BOSS_EVERY) * BOSS_EVERY}`) : (r.desc || '');
+    const extras = [[6, 'lancers'], [8, 'sowers'], [11, 'aegis']].filter(([w]) => v >= w).map(([, t]) => t);
+    const sub = r.key === 'wave'
+      ? (isBossWave(v) ? 'DREADNOUGHT WAVE' : `next boss: wave ${Math.ceil(v / BOSS_EVERY) * BOSS_EVERY}`) + (extras.length ? ` · with ${extras.join(', ')}` : '')
+      : (r.desc || '');
     return `<div class="dbg-row"><div class="dbg-name">${r.name}<small>${sub}</small></div><div class="dbg-step">`
       + `<button data-key="${r.key}" data-d="-1" ${v <= r.min ? 'disabled' : ''}>−</button><b>${shown}</b>`
       + `<button data-key="${r.key}" data-d="1" ${v >= r.max ? 'disabled' : ''}>+</button></div></div>`;
@@ -2069,7 +2336,7 @@ window.addEventListener('keydown', (e) => {
 // ===========================================================================
 const SNAPSHOT_INTERVAL = 1 / 20;
 const WORLD_INTERVAL = 1 / 10;
-const ENEMY_TYPES = ['raider', 'warden', 'seeker', 'dread'];
+const ENEMY_TYPES = ['raider', 'warden', 'seeker', 'dread', 'lancer', 'sower', 'mine', 'aegis'];
 const mp = {
   epoch: 0, sendTimer: 0, worldTimer: 0, waveSyncTimer: 0, starting: false, pendingStart: false,
   players: new Map(),      // pilot id -> { name, ready }
@@ -2142,6 +2409,7 @@ function sendWorld(dt) {
         round2(q.x), round2(q.y), round2(q.z), round2(q.w), Math.round(e.hp * 100) / 100, round2(e.throttle)];
       // the dreadnought also reports its full health and which turrets still stand
       if (e.turrets) row.push(e.maxHp, e.turrets.reduce((mask, t, i) => mask | (t.alive ? 1 << i : 0), 0));
+      else if (e.def.weapon === 'beam') row.push(Math.round(e.charge * 1000) / 1000);   // lancer: how far into its charge
       list.push(row);
     }
     net.sendState({ k: 'es', t: net.netTime(), e: list });
@@ -2166,10 +2434,12 @@ function applyEnemySnapshot(msg) {
     _snap.a[0] = row[8]; _snap.a[1] = row[9]; _snap.a[2] = row[10];
     _snap.q[0] = row[11]; _snap.q[1] = row[12]; _snap.q[2] = row[13]; _snap.q[3] = row[14];
     _snap.hp = row[15]; _snap.th = row[16];
-    _snap.mhp = row[17] || 0;
+    const type = ENEMY_TYPES[row[1]] || 'raider';
+    _snap.mhp = type === 'dread' ? row[17] || 0 : 0;
+    _snap.ch = type === 'lancer' ? row[17] || 0 : 0;
     let e = game.enemies.find((x) => x.netId === id);
     if (!e) {
-      e = new Enemy(ENEMY_TYPES[row[1]] || 'raider', scene, Math.max(0, game.wave - 1), id);
+      e = new Enemy(type, scene, Math.max(0, game.wave - 1), id);
       e.proxy = true;
       e.applyNet(_snap, now);
       if (e.turrets) {
@@ -2182,7 +2452,7 @@ function applyEnemySnapshot(msg) {
       e.mesh.scale.setScalar(0.01);
       e.trail.reset(e.pos);
       game.enemies.push(e);
-      warpInFx(e.pos, e.vel);
+      if (!e.def.inert) warpInFx(e.pos, e.vel);   // mines are dropped, not warped in
     } else {
       e.applyNet(_snap, now);
     }
@@ -2260,7 +2530,7 @@ function updateSpectate(dt) {
   camera.updateMatrixWorld();
   const enough = game.scrap >= REVIVE_COST;
   spectateEls.scrap.innerHTML = `<span class="${enough ? 'ok' : ''}">SHARED SCRAP ${game.scrap} / ${REVIVE_COST}</span>`;
-  const hostiles = game.enemies.length + game.spawnQueue.length;
+  const hostiles = hostileCount() + game.spawnQueue.length;
   spectateEls.wave.textContent = game.waveActive ? `WAVE ${game.wave} · ${hostiles} HOSTILE${hostiles === 1 ? '' : 'S'}` :
     `NEXT WAVE ${Math.max(0, Math.ceil(game.waveTimer))} s`;
 }
@@ -2558,7 +2828,8 @@ net.on('waveStart', (m) => {
   game.waveTimer = 0;
   const restocked = missiles.ammo < missiles.capacity;
   missiles.refill();
-  waveBanner(m.n, m.count, restocked);
+  for (const t of m.nt || []) game.seenTypes.add(t);
+  waveBanner(m.n, m.count, restocked, m.nt || []);
 });
 net.on('waveClear', (m) => {
   if (!isGuest()) return;
@@ -2588,6 +2859,10 @@ net.on('kill', (m) => {
   }
 });
 net.on('salvaged', (m) => { if (isGuest()) wrecks.removeById(m.id); });
+net.on('beam', (m) => {               // a lancer fired: draw it, and check it against our own ship
+  if (!isGuest()) return;
+  fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg);
+});
 net.on('tkill', (m) => {             // a dreadnought turret was destroyed
   if (!isGuest()) return;
   const e = game.enemies.find((x) => x.netId === m.id && x.alive);
@@ -2931,7 +3206,7 @@ frame();
 
 // debug handle
 window.__eh = {
-  collectBoltTargets,
+  collectBoltTargets, hitEnemy,
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,

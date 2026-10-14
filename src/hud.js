@@ -169,8 +169,9 @@ export class HUD {
     for (const e of enemies) {
       if (!e.alive) continue;
       const ep = e.renderPos;
-      this.project(ep, camera, s);
       const dist = ep.distanceTo(playerPos);
+      if (e.def.inert && dist > 450) continue;   // mines only get a marker up close
+      this.project(ep, camera, s);
       if (s.onScreen) {
         let m = this.markerPool[mi];
         if (!m) {
@@ -185,15 +186,16 @@ export class HUD {
         mi++;
         const size = e.def.boss
           ? THREE.MathUtils.clamp(26000 / Math.max(dist, 1), 60, 420)
-          : THREE.MathUtils.clamp(2400 / Math.max(dist, 1), 22, 90);
+          : e.def.inert ? THREE.MathUtils.clamp(1400 / Math.max(dist, 1), 14, 44)
+            : THREE.MathUtils.clamp(2400 / Math.max(dist, 1), 22, 90);
         m.style.display = 'block';
         m.style.width = m.style.height = `${size}px`;
         m.style.left = `${s.x}px`; m.style.top = `${s.y}px`;
         const hidden = occludedByHole(camera.position, e.pos, 2.4);
-        const cls = `tmark ${e.type}${e === lockedEnemy ? ' locked' : ''}${hidden ? ' occluded' : ''}`;
+        const cls = `tmark ${e.type}${e === lockedEnemy ? ' locked' : ''}${hidden ? ' occluded' : ''}${e.shielded ? ' shielded' : ''}`;
         if (m.className !== cls) m.className = cls;
         m._hp.style.width = `${(e.hp / (e.maxHp || e.def.hp)) * 100}%`;
-        m._dist.textContent = hidden ? `${dist.toFixed(0)}m · BEHIND HOLE` : `${dist.toFixed(0)}m`;
+        m._dist.textContent = hidden ? `${dist.toFixed(0)}m · BEHIND HOLE` : e.shielded ? `${dist.toFixed(0)}m · SHIELDED` : `${dist.toFixed(0)}m`;
       } else {
         let a = this.arrowPool[ai];
         if (!a) {

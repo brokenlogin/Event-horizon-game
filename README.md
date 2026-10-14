@@ -12,6 +12,16 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
+## Enemies after the first boss
+
+New types join one at a time, and the first appearance of each gets a NEW CONTACT banner explaining it.
+
+- **Lancer (wave 6+):** a beam sniper that keeps its distance. A faint green aim line tracks you while it charges. When the line starts flashing it has **locked**, and about a second later it fires an instant 26-damage beam. It aims at where you'll be if you keep coasting, so thrust *across* its aim line during the lock to dodge. Thrusting straight toward or away from it doesn't help. The hole blocks the beam.
+- **Sower (wave 8+):** a slow, armoured mine-layer that drops proximity mines behind it, so they drift along its orbit (up to 6 per sower). Mines arm after 1.5 s, blink faster when you're close, and blow up within about 26 m for up to 24 damage. Shooting one from a distance is safe and worth 25 points. Leftover mines fizzle when the wave ends and never block it.
+- **Aegis (wave 11+):** unarmed. Every ship within 260 m of it is tethered to it and takes 65% less damage, shown as a violet bubble and SHIELDED on its marker. Kill it first.
+
+Their wrecks are worth 20 (lancer), 25 (sower) and 30 (aegis) scrap.
+
 ## The Dreadnought (every 5th wave)
 
 On waves 5, 10, 15 and so on, an enemy fortress warps in on a fixed, slightly inclined orbit at 1350 m, with a smaller escort than usual.
@@ -93,7 +103,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 ## Between waves
 
 - After each wave you get **2 minutes** before the next one. A countdown sits at the top of the screen, with alarms at 60, 30 and 10 seconds.
-- Destroyed ships leave **wrecks** on the orbit they died on. Fly within 75 m of one to salvage its scrap: raider 12, seeker 8, warden 35. Wrecks disappear after 2 minutes.
+- Destroyed ships leave **wrecks** on the orbit they died on. Fly within 75 m of one to salvage its scrap: raider 12, seeker 8, warden 35, lancer 20, sower 25, aegis 30, Dreadnought 150. Wrecks disappear after 2 minutes.
 - **Kepler Station** holds a high, slow orbit: 2,500 m at 100 m/s, a lap every ~2.6 minutes. That's slower than a free orbit up there (~167 m/s), so station-keeping thrusters burn continuously; you can see them firing toward the hole. It's marked in green. Get within 300 m of it while moving under 40 m/s relative to it and you dock automatically. When you're close, the HUD shows your range and relative speed, plus green markers for your velocity relative to the station; burn toward ⊗ to match its speed.
 - **Docking assist (B):** the autopilot simulates candidate burns twice a second against the station's future path, flies the best transfer, then brakes in on final approach. In tests it docked from anywhere in the arena in about 25–100 s.
 - **Salvage drones:** spare missiles can collect scrap. Aim at a wreck and press E (a quicker, green lock), then Q. The drone scoops up the wreck and hops on to any others within 1.5 km. Any missile that passes through a wreck collects it.
@@ -103,6 +113,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
   - Missile Boosters: +30% missile thrust and top speed
   - Shield Capacitors: faster shield regeneration
   - Hull Plating: +25 maximum hull per level
+  - Nanite Repair: the hull repairs itself, +0.75% of max hull per second per level (up to 3%/s)
   - Hull repair and missile rearm
 - **You can still be shot while docked.**
 

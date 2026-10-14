@@ -8,6 +8,7 @@ export const UPGRADES = [
   { id: 'missileSpeed', name: 'MISSILE BOOSTERS', desc: '+30% missile thrust and top speed', costs: [35, 70, 120] },
   { id: 'shieldRegen', name: 'SHIELD CAPACITORS', desc: '+40% shield regen, shorter recharge delay', costs: [25, 50, 90, 140] },
   { id: 'hull', name: 'HULL PLATING', desc: '+25 maximum hull per level', costs: [35, 70, 110, 160] },
+  { id: 'repair', name: 'NANITE REPAIR', desc: 'Hull repairs itself: +0.75% of max hull per second per level', costs: [45, 90, 140, 200] },
 ];
 
 export function newUpgradeLevels() {

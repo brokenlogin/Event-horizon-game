@@ -438,3 +438,12 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .remote-code:focus { border-color: var(--cyan); box-shadow: 0 0 14px rgba(94, 242, 255, 0.3); }
 .lobby-code { cursor: copy; }
 .lobby-code.long { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 18px; letter-spacing: 1px; word-break: break-all; max-width: 420px; text-align: center; }
+
+/* wave 6+ enemy types */
+.tmark.lancer, .edge-arrow.lancer { color: #4dff8f; }
+.tmark.sower, .edge-arrow.sower { color: #ff9a3a; }
+.tmark.mine { color: #ff7a4a; opacity: 0.85; }
+.tmark.mine .hp, .tmark.mine .dist { display: none; }
+.tmark.aegis, .edge-arrow.aegis { color: #8a7bff; }
+.tmark.shielded .box::before, .tmark.shielded .box::after { border-color: #8a7bff; }
+.tmark.shielded .dist { color: #a99bff; }

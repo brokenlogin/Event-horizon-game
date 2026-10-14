@@ -107,6 +107,34 @@ export class GameAudio {
     o.start(t); o.stop(t + 0.3);
   }
 
+  /** Lancer charging: a short rising tick; `level` 0..1 is how far along the charge is. */
+  chargeTick(level = 0, vol = 1, locked = false) {
+    if (!this.ctx || vol < 0.02) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = locked ? 'square' : 'triangle';
+    const f0 = 300 + level * 900;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f0 * 1.25, t + 0.07);
+    const g = ctx.createGain(); this._env(g, t, (locked ? 0.07 : 0.05) * vol, 0.004, 0.08);
+    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.12);
+  }
+
+  /** Lancer beam: a hard crack with a falling hiss. */
+  beam(vol = 1) {
+    if (!this.ctx || vol < 0.02) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(2200, t);
+    o.frequency.exponentialRampToValueAtTime(70, t + 0.35);
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 4000;
+    const g = ctx.createGain(); this._env(g, t, 0.16 * vol, 0.002, 0.35);
+    o.connect(f).connect(g).connect(this.master); o.start(t); o.stop(t + 0.4);
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const nf = ctx.createBiquadFilter(); nf.type = 'highpass'; nf.frequency.value = 1800;
+    const ng = ctx.createGain(); this._env(ng, t, 0.2 * vol, 0.002, 0.3);
+    src.connect(nf).connect(ng).connect(this.master); src.start(t, Math.random()); src.stop(t + 0.35);
+  }
+
   explosion(size = 1, vol = 1) {
     if (!this.ctx || vol < 0.02) return;
     const ctx = this.ctx, t = ctx.currentTime;
