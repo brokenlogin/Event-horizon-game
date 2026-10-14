@@ -362,7 +362,28 @@ def start_tunnel():
     return proc
 
 
+def open_server():
+    """Bind the server, moving up to the next free port if this one is taken
+    (another copy of the game server is usually what's sitting on it)."""
+    global PORT
+    host = '0.0.0.0' if LAN else '127.0.0.1'
+    first = PORT
+    for port in range(first, first + 20):
+        try:
+            server = Server((host, port), Handler)
+        except OSError as e:
+            if e.errno in (48, 98, 10048):     # address in use (macOS, Linux, Windows)
+                continue
+            raise
+        if port != first:
+            print(f'(Port {first} is busy, probably another copy of this server, so using {port}.)')
+        PORT = port
+        return server
+    sys.exit(f'Ports {first}-{first + 19} are all busy. Close other copies of the server and try again.')
+
+
 if __name__ == '__main__':
+    httpd = open_server()
     url = f'http://localhost:{PORT}'
     print(f'Event Horizon running at {url}  (Ctrl+C to stop)')
     if LAN:
@@ -371,16 +392,16 @@ if __name__ == '__main__':
     # a plain kill should clean up the tunnel just like Ctrl+C does
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     tunnel = None
-    if REMOTE:
-        print('Starting the Cloudflare tunnel for REMOTE multiplayer...', flush=True)
-        tunnel = start_tunnel()
-    elif '--open' in args:
-        webbrowser.open(url)
-    with Server(('0.0.0.0' if LAN else '127.0.0.1', PORT), Handler) as httpd:
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            if tunnel is not None:
-                tunnel.terminate()
+    try:
+        if REMOTE:
+            print('Starting the Cloudflare tunnel for REMOTE multiplayer...', flush=True)
+            tunnel = start_tunnel()
+        elif '--open' in args:
+            webbrowser.open(url)
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if tunnel is not None:
+            tunnel.terminate()
+        httpd.server_close()
