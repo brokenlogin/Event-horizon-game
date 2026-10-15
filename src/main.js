@@ -8,7 +8,7 @@ import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import {
   RS, ISCO, DISK_IN, DISK_OUT, ARENA_RADIUS,
   integrate, circularSpeed, circularOrbitState, createPrediction, predictTrajectory,
-  gravityAt, occludedByHole,
+  gravityAt, occludedByHole, accelAt,
 } from './physics.js';
 import { createBlackHole } from './blackhole.js';
 import { buildPlayerShip } from './ships.js';
@@ -1459,6 +1459,10 @@ function thrustMult(withBoost = true) {
   const lv = game.levels;
   return (lv.mk2 ? 1.5 : 1) * (1 + 0.15 * (lv.thrusters || 0)) * (withBoost && game.boostT > 0 ? 2 : 1);
 }
+// Smart Ammo: faster, longer-lived bolts and a wider, gravity-aware aim assist
+const smartAmmo = () => !!game.levels.smartammo;
+const boltSpeed = () => BOLT_SPEED * (smartAmmo() ? 1.25 : 1);
+const boltLife = () => BOLT_LIFE * (smartAmmo() ? 1.4 : 1);
 const fireInterval = () => FIRE_INTERVAL / (1 + 0.15 * (game.levels.rapid || 0));
 const heatPerShot = () => HEAT_PER_SHOT * (1 - 0.2 * (game.levels.heatsink || 0));
 const collectRange = () => COLLECT_RANGE * (1 + 0.5 * (game.levels.magnet || 0));
@@ -1671,9 +1675,9 @@ function firePlayer(lockInfo) {
   } else {
     dir = _v2.copy(player.pos).addScaledVector(fwd, CONVERGE_DIST).sub(muzzle).normalize();
   }
-  _v3.copy(player.vel).addScaledVector(dir, BOLT_SPEED);
-  playerBolts.spawn(muzzle, _v3, BOLT_LIFE, cannonDamage());
-  if (game.mp) net.sendEvent({ k: 'f', t: worldNow(), p: r2(muzzle), v: r2(_v3) });
+  _v3.copy(player.vel).addScaledVector(dir, boltSpeed());
+  playerBolts.spawn(muzzle, _v3, boltLife(), cannonDamage());
+  if (game.mp) net.sendEvent({ k: 'f', t: worldNow(), p: r2(muzzle), v: r2(_v3), l: round2(boltLife()) });
   particles.emit(muzzle.x, muzzle.y, muzzle.z, player.vel.x + dir.x * 20, player.vel.y + dir.y * 20, player.vel.z + dir.z * 20, 0.6, 2.2, 3, 1.4, 0.3, 0.07, false);
   player.heat += heatPerShot();
   if (player.heat >= 1) { player.heat = 1; player.overheated = true; audio.beep(220, 0.25, 0.08, 'sawtooth'); }
@@ -2012,23 +2016,32 @@ function updatePlayerControl(dt) {
   lockInfo.enemy = null;
   lockInfo.assist = false;
   let bestDot = Math.cos(THREE.MathUtils.degToRad(18));
+  const smart = smartAmmo();
+  const reach = smart ? 1500 : 900;
   for (const e of game.enemies) {
     if (!e.alive) continue;
     const to = _v1.subVectors(e.pos, player.pos);
     const d = to.length();
-    if (d > 900) continue;
+    if (d > reach) continue;
     const dot = to.divideScalar(d).dot(fwd);
     if (dot > bestDot) { bestDot = dot; lockInfo.enemy = e; }
   }
   if (lockInfo.enemy) {
     const e = lockInfo.enemy;
-    let t = e.pos.distanceTo(player.pos) / BOLT_SPEED;
+    const speed = boltSpeed();
+    let t = e.pos.distanceTo(player.pos) / speed;
     for (let i = 0; i < 3; i++) {
       lockInfo.aim.copy(e.pos).addScaledVector(_v1.subVectors(e.vel, player.vel), t);
-      t = lockInfo.aim.distanceTo(player.pos) / BOLT_SPEED;
+      if (smart) {
+        // allow for gravity bending the bolt differently from the target over the flight
+        const mid = _v2.addVectors(player.pos, lockInfo.aim).multiplyScalar(0.5);
+        const gBolt = accelAt(mid, _v3);
+        lockInfo.aim.addScaledVector(accelAt(e.pos, _v2).sub(gBolt), 0.5 * t * t);
+      }
+      t = lockInfo.aim.distanceTo(player.pos) / speed;
     }
     const aimDir = _v1.subVectors(lockInfo.aim, player.pos).normalize();
-    lockInfo.assist = aimDir.dot(fwd) > Math.cos(0.045);
+    lockInfo.assist = aimDir.dot(fwd) > Math.cos(smart ? 0.09 : 0.045);
   }
 
   // --- weapons ---
@@ -3352,7 +3365,7 @@ net.on('f', (f) => {
   const late = Math.min(Math.max(worldNow() - f.t, 0), 0.5);
   _v1.fromArray(f.p); _v2.fromArray(f.v);
   _v1.addScaledVector(_v2, late);
-  allyBolts.spawn(_v1, _v2, BOLT_LIFE - late, 0);
+  allyBolts.spawn(_v1, _v2, (f.l || BOLT_LIFE) - late, 0);
   const d = _v1.distanceTo(player.pos);
   if (d < 400) audio.enemyLaser(THREE.MathUtils.clamp(1 - d / 400, 0, 0.6));
 });
