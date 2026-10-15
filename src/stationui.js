@@ -5,7 +5,7 @@
 export const UPGRADES = [
   { id: 'damage', name: 'CANNON OVERCHARGE', desc: '+25% cannon damage per level', costs: [30, 60, 100, 150] },
   { id: 'missileCap', name: 'MISSILE RACKS', desc: '+1 missile carried per wave', costs: [40, 80, 130] },
-  { id: 'missileSpeed', name: 'MISSILE BOOSTERS', desc: '+30% missile thrust and top speed', costs: [35, 70, 120] },
+  { id: 'missileSpeed', name: 'MISSILE BOOSTERS', desc: '+30% missile thrust and top speed, +200 m lock range', costs: [35, 70, 120] },
   { id: 'shieldRegen', name: 'SHIELD CAPACITORS', desc: '+40% shield regen, shorter recharge delay', costs: [25, 50, 90, 140] },
   { id: 'hull', name: 'HULL PLATING', desc: '+25 maximum hull per level', costs: [35, 70, 110, 160] },
   { id: 'repair', name: 'NANITE REPAIR', desc: 'Hull repairs itself: +0.75% of max hull per second per level', costs: [45, 90, 140, 200] },

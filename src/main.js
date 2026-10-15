@@ -1255,6 +1255,7 @@ function applyUpgrades() {
   player.maxHull = BASE_HULL + 25 * game.levels.hull;
   missiles.capacity = diffDef().missiles + game.levels.missileCap;
   missiles.speedMult = 1 + 0.3 * game.levels.missileSpeed;
+  missiles.rangeBonus = 200 * game.levels.missileSpeed;
 }
 
 const stationUI = new StationUI({

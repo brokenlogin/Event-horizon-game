@@ -65,6 +65,7 @@ export class MissileSystem {
     this.missiles = [];
     this.capacity = MISSILES_PER_WAVE;   // raised by the Missile Racks upgrade
     this.speedMult = 1;                  // raised by the Missile Boosters upgrade
+    this.rangeBonus = 0;                 // m of extra lock range, also from Missile Boosters
     this.ammo = MISSILES_PER_WAVE;
     this.lockState = 'idle';  // idle | locking | locked
     this.lockKind = 'enemy';  // enemy | salvage
@@ -72,6 +73,9 @@ export class MissileSystem {
     this.lockProgress = 0;
     this.beepTimer = 0;
   }
+
+  /** Seeker lock range (doubled against the dreadnought, see lockRangeFor). */
+  get lockRange() { return LOCK_RANGE + this.rangeBonus; }
 
   refill() {
     this.ammo = this.capacity;
@@ -97,14 +101,14 @@ export class MissileSystem {
     const { hud, audio } = this.ctx;
     if (this.lockState !== 'idle') { this.cancelLock(); return; }
     if (this.ammo <= 0) { hud.notice('NO MISSILES — RESUPPLY NEXT WAVE OR REARM AT STATION', 'red'); audio.beep(180, 0.15, 0.06, 'square'); return; }
-    let target = this._findCandidate(ACQUIRE_CONE, LOCK_RANGE);
+    let target = this._findCandidate(ACQUIRE_CONE, this.lockRange);
     this.lockKind = 'enemy';
     if (!target) {
       target = this._findCandidate(SALVAGE_CONE, SALVAGE_RANGE, false, this.ctx.wrecks());
       this.lockKind = 'salvage';
     }
     if (!target) {
-      const masked = this._findCandidate(ACQUIRE_CONE, LOCK_RANGE, true);
+      const masked = this._findCandidate(ACQUIRE_CONE, this.lockRange, true);
       hud.notice(masked ? 'TARGET MASKED BY THE HOLE' : 'NO TARGET OR SALVAGE IN SEEKER CONE', 'dim');
       audio.beep(240, 0.12, 0.05, 'square');
       return;
@@ -187,7 +191,7 @@ export class MissileSystem {
         _to.subVectors(t.pos, player.pos);
         const d = _to.length();
         const fwd = _fwd.set(0, 0, -1).applyQuaternion(player.quat);
-        const range = this.lockKind === 'salvage' ? SALVAGE_RANGE : lockRangeFor(t, LOCK_RANGE);
+        const range = this.lockKind === 'salvage' ? SALVAGE_RANGE : lockRangeFor(t, this.lockRange);
         ok = d < range * 1.15 && aimDot(t, _to.divideScalar(d), fwd, d) > HOLD_CONE && !occludedByHole(player.pos, t.pos, 1.6);
       }
       if (!ok) {

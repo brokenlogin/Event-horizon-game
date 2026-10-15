@@ -112,7 +112,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 - While docked you can spend scrap on:
   - Cannon Overcharge: +25% cannon damage per level
   - Missile Racks: +1 missile per wave
-  - Missile Boosters: +30% missile thrust and top speed
+  - Missile Boosters: +30% missile thrust and top speed, and +200 m lock range per level (1000 m base; doubled against the Dreadnought)
   - Shield Capacitors: faster shield regeneration
   - Hull Plating: +25 maximum hull per level
   - Nanite Repair: the hull repairs itself, +0.75% of max hull per second per level (up to 3%/s)
