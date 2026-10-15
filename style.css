@@ -520,3 +520,10 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .tt-need { font-family: var(--font-display); font-size: 10px; letter-spacing: 2px; color: rgba(255, 173, 74, 0.85); max-width: 360px; text-align: right; }
 .tt-hint { font-size: 14px; color: rgba(217, 246, 255, 0.5); }
 .tt-detail .btn { min-width: 0; }
+
+/* railgun assist bracket */
+#rail-target { position: absolute; left: 0; top: 0; display: none; pointer-events: none; color: var(--cyan); }
+#rail-target i { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; border: 2px solid currentColor; transform: rotate(45deg); filter: drop-shadow(0 0 5px currentColor); opacity: 0.7; }
+#rail-target span { position: absolute; left: 22px; top: -6px; font-family: var(--font-display); font-size: 9px; letter-spacing: 2px; }
+#rail-target.full { color: #fff; }
+#rail-target.full i { opacity: 1; animation: blink 0.3s steps(2) infinite; }

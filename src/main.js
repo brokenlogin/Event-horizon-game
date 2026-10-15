@@ -366,9 +366,9 @@ const game = {
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
 const DIFFICULTIES = {
-  easy: { name: 'EASY', dmg: 0.65, missiles: 3, desc: 'Enemies deal 35% less damage · 3 missiles per wave' },
-  normal: { name: 'NORMAL', dmg: 1, missiles: 2, desc: 'Standard damage · 2 missiles per wave' },
-  hard: { name: 'HARD', dmg: 1.3, missiles: 1, desc: 'Enemies deal 30% more damage · 1 missile per wave' },
+  easy: { name: 'EASY', dmg: 0.65, missiles: 3, count: 0.7, desc: '30% fewer enemies · 35% less damage · 3 missiles per wave' },
+  normal: { name: 'NORMAL', dmg: 1, missiles: 2, count: 1, desc: 'Standard waves · standard damage · 2 missiles per wave' },
+  hard: { name: 'HARD', dmg: 1.3, missiles: 1, count: 1.35, desc: '35% more enemies · 30% more damage · 1 missile per wave' },
 };
 const validDifficulty = (d) => (Object.hasOwn(DIFFICULTIES, d) ? d : 'normal');
 let difficulty = validDifficulty(store.get('eh_difficulty', 'normal'));   // what this player picked
@@ -515,7 +515,7 @@ function hostileCount() {
 
 function waveComposition(n) {
   const list = [];
-  const k = enemyScale();
+  const k = enemyScale() * diffDef().count;   // crew size × difficulty
   if (isBossWave(n)) {
     const raiders = Math.max(1, Math.round(Math.min(2 + n, 9) * k * 0.4));
     const seekers = Math.round(Math.min(Math.floor(n / 1.5), 6) * k * 0.35);
@@ -1123,7 +1123,26 @@ const RAIL_RANGE = 2500;
 const RAIL_COOLDOWN = 4;
 const BOOST_TIME = 3, BOOST_COOLDOWN = 15;
 const AUTO_REARM_EVERY = 40;
+const RAIL_ASSIST = Math.cos(THREE.MathUtils.degToRad(4));   // snaps to a target this close to the crosshair
+const RAIL_PAD = 4;                                          // m added to every target's hit radius…
+const RAIL_SPREAD = 0.01;                                    // …plus 1 m per 100 m of range
 let railHeld = false;
+let railTarget = null;   // what the railgun is locked onto while charging (for the bracket)
+
+/** The target nearest the crosshair within the assist cone, or null. */
+function findRailTarget() {
+  const fwd = forwardOf(player.quat, _v1);
+  let best = null, bestDot = RAIL_ASSIST;
+  for (const t of collectBoltTargets()) {
+    if (!t.alive || t.isMissile) continue;
+    const d = _v2.subVectors(t.pos, player.pos);
+    const dist = d.length();
+    if (dist > RAIL_RANGE || dist < 1) continue;
+    const dot = d.divideScalar(dist).dot(fwd);
+    if (dot > bestDot && !occludedByHole(player.pos, t.pos, 1.3)) { bestDot = dot; best = t; }
+  }
+  return best;
+}
 const railChargeTime = () => (game.levels.railcap ? 0.75 : 1.25);
 
 function resetAbilities() {
@@ -1142,8 +1161,10 @@ function useAfterburner() {
 }
 
 function fireRailgun() {
-  const dir = forwardOf(player.quat, new THREE.Vector3());
   const origin = shipParts.railMuzzle.clone().applyQuaternion(player.quat).add(player.pos);
+  // aim assist: fire straight at whatever is nearest the crosshair, else straight ahead
+  const target = findRailTarget();
+  const dir = target ? new THREE.Vector3().subVectors(target.pos, origin).normalize() : forwardOf(player.quat, new THREE.Vector3());
   let len = beamLength(origin, dir, RAIL_RANGE);
   // everything the slug passes through, nearest first (the dreadnought counts once)
   const hits = [];
@@ -1153,7 +1174,8 @@ function fireRailgun() {
     const vx = t.pos.x - origin.x, vy = t.pos.y - origin.y, vz = t.pos.z - origin.z;
     const along = vx * dir.x + vy * dir.y + vz * dir.z;
     if (along < 0 || along > len) continue;
-    if (vx * vx + vy * vy + vz * vz - along * along > t.radius * t.radius) continue;
+    const r = t.radius + RAIL_PAD + along * RAIL_SPREAD;   // generous: a railgun shouldn't need pixel aim
+    if (vx * vx + vy * vy + vz * vz - along * along > r * r) continue;
     hits.push({ t, along });
   }
   hits.sort((a, b) => a.along - b.along);
@@ -1180,6 +1202,7 @@ function fireRailgun() {
 function releaseRail() {
   if (!railHeld) return;
   railHeld = false;
+  railTarget = null;
   if (game.railCharge >= 1 && player.alive && !player.docked && !player.docking) fireRailgun();
   else if (game.railCharge > 0.05) hud.notice('RAILGUN · RELEASED BEFORE FULL CHARGE', 'dim');
   game.railCharge = 0;
@@ -1198,6 +1221,7 @@ function updateAbilities(dt) {
       hud.notice('AUTO-REARM · +1 MISSILE', 'green');
     }
   } else game.rearmT = 0;
+  railTarget = railHeld && lv.railgun && player.alive && !player.docked ? findRailTarget() : null;
   if (railHeld && lv.railgun && player.alive && !player.docked && !player.docking && game.railCd <= 0) {
     const was = game.railCharge;
     game.railCharge = Math.min(1, game.railCharge + dt / railChargeTime());
@@ -1223,6 +1247,12 @@ function updateAbilityHud() {
     html += `<div class="ab boost"><span>AFTERBURNER <kbd>R</kbd></span>${state}</div>`;
   }
   if (abilitiesEl._html !== html) { abilitiesEl._html = html; abilitiesEl.innerHTML = html; }
+  // bracket on whatever the railgun will snap to
+  const rt = document.getElementById('rail-target');
+  if (railTarget && game.railCd <= 0) {
+    hud.place(rt, railTarget.pos, camera);
+    rt.classList.toggle('full', game.railCharge >= 1);
+  } else if (rt.style.display !== 'none') rt.style.display = 'none';
 }
 
 // ---------------------------------------------------------------------------

@@ -55,13 +55,13 @@ DEBUG LAUNCH on the main menu starts a solo run at any wave (1–30) with any up
 
 Pick it on the main menu, above LAUNCH:
 
-| | Enemy damage | Missiles per wave |
-|---|---|---|
-| Easy | −35% | 3 |
-| Normal | standard | 2 |
-| Hard | +30% | 1 |
+| | Enemies per wave | Enemy damage | Missiles per wave |
+|---|---|---|---|
+| Easy | −30% | −35% | 3 |
+| Normal | standard | standard | 2 |
+| Hard | +35% | +30% | 1 |
 
-Enemy damage covers their cannon fire, seeker rams and collisions with enemy ships. The black hole's tides and the accretion disk hurt the same on every setting. Each difficulty keeps its own best score. In multiplayer the host picks the difficulty in the waiting room and everyone flies with it.
+Enemy counts stack with crew scaling in multiplayer. Enemy damage covers their cannon fire, seeker rams and collisions with enemy ships. The black hole's tides and the accretion disk hurt the same on every setting. Each difficulty keeps its own best score. In multiplayer the host picks the difficulty in the waiting room and everyone flies with it.
 
 ## Multiplayer (up to 4 pilots)
 
