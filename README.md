@@ -98,6 +98,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 | B | Docking assist: the autopilot flies the rendezvous (any thrust key cancels). With a Dreadnought alive it parks you 600 m behind it instead |
 | F | Undock from the station |
 | N | Call the next wave early |
+| T | Show / hide the performance counter: FPS, average and worst frame time, CPU time per frame, render resolution |
 | Esc | Pause |
 
 ## Between waves

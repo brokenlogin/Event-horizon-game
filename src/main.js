@@ -287,6 +287,7 @@ let hadLock = false;
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;   // typing a room code
+  if (e.code === 'KeyT' && !e.repeat) togglePerf();
   if (['Space', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (state === 'playing' && player.alive && !e.repeat) {
@@ -2003,10 +2004,49 @@ function updateMenuCamera(dt) {
 const clock = new THREE.Clock();
 let visualTime = 0;
 
-function frame() {
+function frame(now) {
   requestAnimationFrame(frame);
+  const t0 = performance.now();
   tick(Math.min(clock.getDelta(), 0.05), true);
+  if (perf.on && perf.last) perfSample(now - perf.last, performance.now() - t0);
+  perf.last = now;
 }
+
+// ---------------------------------------------------------------------------
+// Performance readout (T). Frame time is the real interval between displayed
+// frames; CPU is the time this code spends per frame (game logic plus issuing
+// the draw calls). If frames are slow while CPU stays low, the graphics card
+// is the limit.
+// ---------------------------------------------------------------------------
+const perf = {
+  on: false, last: 0, el: document.getElementById('perf'),
+  n: 0, total: 0, cpu: 0, worst: 0, window: 0,
+};
+function togglePerf(on = !perf.on) {
+  perf.on = on;
+  store.set('eh_perf', on);
+  perf.el.classList.toggle('hidden', !on);
+  perf.n = perf.total = perf.cpu = perf.worst = perf.window = 0;
+  if (on) perf.el.innerHTML = '<b>— FPS</b><span>measuring…</span>';
+}
+function perfSample(frameMs, cpuMs) {
+  perf.n++;
+  perf.total += frameMs;
+  perf.cpu += cpuMs;
+  perf.worst = Math.max(perf.worst, frameMs);
+  perf.window += frameMs;
+  if (perf.window < 500) return;
+  const avg = perf.total / perf.n;
+  const fps = 1000 / avg;
+  const c = renderer.domElement;
+  perf.el.className = fps >= 55 ? 'good' : fps >= 30 ? 'ok' : 'bad';
+  perf.el.innerHTML = `<b>${fps.toFixed(0)} FPS</b>`
+    + `<span>${avg.toFixed(1)} ms avg · ${perf.worst.toFixed(1)} ms worst</span>`
+    + `<span>CPU ${(perf.cpu / perf.n).toFixed(1)} ms / frame</span>`
+    + `<span>${c.width}×${c.height} · ${QUALITY[qualityKey].label}</span>`;
+  perf.n = perf.total = perf.cpu = perf.worst = perf.window = 0;
+}
+togglePerf(!!store.get('eh_perf', false));
 
 function tick(rawDt, render) {
   visualTime += rawDt;
