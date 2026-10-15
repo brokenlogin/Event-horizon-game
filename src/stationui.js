@@ -2,6 +2,8 @@
 // Upgrades bought with salvaged scrap while docked at the station.
 // ---------------------------------------------------------------------------
 
+import { TECH, TECH_KEYS, MK2_COST, mk2Ready, techOwned } from './techtree.js';
+
 export const UPGRADES = [
   { id: 'damage', name: 'CANNON OVERCHARGE', desc: '+25% cannon damage per level', costs: [30, 60, 100, 150] },
   { id: 'missileCap', name: 'MISSILE RACKS', desc: '+1 missile carried per wave', costs: [40, 80, 130] },
@@ -12,8 +14,9 @@ export const UPGRADES = [
 ];
 
 export function newUpgradeLevels() {
-  const l = {};
+  const l = { mk2: 0 };
   for (const u of UPGRADES) l[u.id] = 0;
+  for (const k of TECH_KEYS) if (!(k in l)) l[k] = 0;
   return l;
 }
 
@@ -57,6 +60,21 @@ export class StationUI {
   }
 
   show() { this.root.classList.remove('hidden'); this.render(true); }
+
+  /** The MK2 ship: offered once Missile Racks and Hull Plating are both maxed. */
+  mk2Offer(v) {
+    const ready = mk2Ready(v.levels);
+    const cost = Math.round(MK2_COST * (v.costMult || 1));
+    const need = [];
+    if (v.levels.missileCap < 3) need.push('MISSILE RACKS');
+    if (v.levels.hull < 4) need.push('HULL PLATING');
+    const btn = ready
+      ? `<button class="st-buy mk2" data-act="buy" data-id="mk2" ${v.scrap < cost ? 'disabled' : ''}>${cost} <span>SCRAP</span></button>`
+      : '<button class="st-buy" disabled>LOCKED</button>';
+    return `<div class="st-item mk2${ready ? ' ready' : ''}"><div class="st-info"><div class="st-name">UPGRADE TO MK2 SHIP</div>`
+      + '<div class="st-desc">+50% engine power · keeps your upgrades · unlocks the TECH TREE</div>'
+      + (ready ? '' : `<div class="st-desc need">Max out ${need.join(' and ')} first</div>`) + `</div>${btn}</div>`;
+  }
   hide() { this.root.classList.add('hidden'); }
   get visible() { return !this.root.classList.contains('hidden'); }
 
@@ -69,7 +87,13 @@ export class StationUI {
       $('st-scrap').textContent = v.scrap;
       $('st-hull').textContent = `${Math.ceil(v.hull)} / ${v.maxHull}`;
       $('st-ammo').textContent = `${v.ammo} / ${v.capacity}`;
-      this.list.innerHTML = UPGRADES.map((u) => {
+      if (v.levels.mk2) {
+        // MK2: the tech tree replaces the upgrade list
+        const owned = TECH.filter((n) => techOwned(v.levels, n)).length;
+        this.list.innerHTML = `<div class="st-item mk2-owned"><div class="st-info"><div class="st-name">MK2 TECH TREE</div>`
+          + `<div class="st-desc">${owned} / ${TECH.length} researched · weapons, missiles, defense, engineering</div></div>`
+          + '<button class="st-buy" data-act="openTree">OPEN <span>TREE</span></button></div>';
+      } else this.list.innerHTML = UPGRADES.map((u) => {
         const lvl = v.levels[u.id];
         const max = u.costs.length;
         const cost = upgradeCost(u, lvl, v.costMult || 1);
@@ -78,7 +102,7 @@ export class StationUI {
           ? '<button class="st-buy" disabled>MAXED</button>'
           : `<button class="st-buy" data-act="buy" data-id="${u.id}" ${v.scrap < cost ? 'disabled' : ''}>${cost} <span>SCRAP</span></button>`;
         return `<div class="st-item"><div class="st-info"><div class="st-name">${u.name}</div><div class="st-desc">${u.desc}</div><div class="st-pips">${pips}</div></div>${btn}</div>`;
-      }).join('');
+      }).join('') + this.mk2Offer(v);
       // fallen wingmates (multiplayer)
       const rev = $('st-revive');
       const dead = v.dead || [];

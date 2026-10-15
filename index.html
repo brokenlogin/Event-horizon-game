@@ -49,6 +49,7 @@
     <div id="autopilot"></div>
     <div id="lockring"><div class="lr-box"></div><div class="lr-label">LOCKING</div></div>
     <div id="notice"></div>
+    <div id="abilities"></div>
     <div id="crosshair">
       <svg viewBox="0 0 80 80">
         <circle cx="40" cy="40" r="15" class="ring"/>
@@ -168,6 +169,8 @@
         <div><kbd>LMB</kbd></div><div>Fire twin cannons</div>
         <div><kbd>E</kbd></div><div>Start missile lock (keep the target in your sights) — aim at a wreck to lock it for salvage</div>
         <div><kbd>Q</kbd></div><div>Fire homing missile once locked — 2 per wave (3 on Easy, 1 on Hard)</div>
+        <div><kbd>RMB</kbd></div><div>Railgun (MK2 tech): hold to charge, release to fire</div>
+        <div><kbd>R</kbd></div><div>Afterburner (MK2 tech): 3 s of double engine power</div>
         <div><kbd>B</kbd></div><div>Docking assist — autopilot flies you to the station (during a Dreadnought fight: parks you 600 m behind it on its orbit)</div>
         <div><kbd>F</kbd></div><div>Undock from the station</div>
         <div><kbd>N</kbd></div><div>Call the next wave early</div>
@@ -185,6 +188,7 @@
         <p>The cyan line is your predicted path. If it turns <b class="r">red</b> and ends at the hole, burn prograde now.</p>
         <p><b class="o">Missiles:</b> press E with a hostile near your crosshair and hold it there until the lock completes, then press Q. They burn for 4 seconds, then fall ballistic and self-destruct. Lock range is 1000 m, plus 200 m per Missile Boosters level (doubled against the Dreadnought).</p>
         <p><b class="r">Dreadnought:</b> every fifth wave an enemy fortress takes up a low orbit (about 1350 m) with a lighter escort. It has a lot of armour, six turrets that each cover one side of the hull, and a launcher in its prow that sends out seeker drones. Knock out the turrets to blunt it. Press <b class="c">B</b> to have the autopilot park you 600 m behind it on the same orbit. Missiles lock onto it from 2000 m. Its hulk is worth 150 scrap.</p>
+        <p><b style="color:#ffc860">MK2 ship:</b> once Missile Racks and Hull Plating are both maxed, the station offers the MK2 refit for 300 scrap: +50% engine power, a new look, and you keep every upgrade. After that the upgrade list becomes the <b style="color:#ffc860">MK2 tech tree</b>: 52 nodes across Weapons, Missiles, Defense and Engineering. It includes higher tiers of your upgrades and new abilities like the Railgun and Afterburner. Click a node to see it, then BUY.</p>
         <p><b class="o">New contacts:</b> after the first boss, new ships join the waves. <b>Lancers</b> (wave 6) charge a beam: when the green aim line flashes, thrust across it to dodge. <b>Sowers</b> (wave 8) lay proximity mines along their orbit, which are safe to shoot from range. <b>Aegis</b> ships (wave 11) shield everything near them, so destroy them first.</p>
         <p>Kills made while you are within 750 m of the singularity score <b class="o">DANGER CLOSE ×2</b>. Chain kills to build your multiplier.</p>
       </div>
@@ -245,6 +249,18 @@
     </div>
   </div>
 
+  <div id="techtree" class="hidden">
+    <div class="tt-card">
+      <div class="tt-head">
+        <div><h2>MK2 TECH TREE</h2><div id="tt-count" class="tt-count"></div></div>
+        <div class="tt-scrap">SCRAP <b id="tt-scrap">0</b></div>
+        <button id="tt-close" class="btn small">CLOSE</button>
+      </div>
+      <div class="tt-body"><div id="tt-canvas" class="tt-canvas"></div></div>
+      <div id="tt-detail" class="tt-detail"></div>
+    </div>
+  </div>
+
   <div id="debug" class="overlay hidden">
     <div class="card center debug-card">
       <h2>DEBUG LAUNCH</h2>
@@ -253,6 +269,8 @@
       <div class="dbg-quick">
         <button class="dbg-chip" data-preset="boss">WAVE 5 BOSS</button>
         <button class="dbg-chip" data-preset="max">MAX UPGRADES</button>
+        <button class="dbg-chip" data-preset="mk2">MK2</button>
+        <button class="dbg-chip" data-preset="alltech">MK2 + ALL TECH</button>
         <button class="dbg-chip" data-preset="reset">RESET</button>
       </div>
       <div id="dbg-note" class="dbg-note"></div>

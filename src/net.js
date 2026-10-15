@@ -17,7 +17,7 @@
 // NTP-style pings (best-of recent samples), so netTime() is shared.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL = 9;
+export const PROTOCOL = 10;
 export const MAX_PILOTS = 4;
 const PREFIX = 'event-horizon-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O, 1/I
@@ -26,7 +26,7 @@ const PING_INTERVAL = 1.0;
 const TIMEOUT = 5.0;
 const CONNECT_TIMEOUT = 15000;
 // guest messages the host forwards to the other guests
-const RELAY = new Set(['s', 'f', 'd']);
+const RELAY = new Set(['s', 'f', 'd', 'rail']);
 
 const nowSec = () => performance.now() / 1000;
 const UNREACHABLE = 'Could not reach the host\'s server. Check the share code, and that the host\'s server window is still open (a brand-new one can take ~10 seconds to start answering).';

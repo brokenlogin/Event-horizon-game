@@ -12,6 +12,19 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
+## MK2 ship and the tech tree
+
+Once **Missile Racks** and **Hull Plating** are both maxed, the station's upgrade list offers **UPGRADE TO MK2 SHIP** for 300 scrap (crew-priced in multiplayer, and shared like every upgrade). The MK2 has **+50% engine power** and a refitted look (wingtip nacelles, gold trim), and it keeps every upgrade you've bought.
+
+After that, the upgrade list is replaced by the **MK2 tech tree**: 52 nodes in four branches. Your existing upgrades are the first tiers of their chains. Click a node to see what it does and what it needs, then **BUY**.
+
+- **Weapons:** Cannon Overcharge to VI · Rapid Cyclers (+15% fire rate) · Heat Sinks (−20% heat per shot) · **Railgun** ◆ (hold right mouse to charge, release to fire a 2.5 km hitscan slug; 4 s cooldown) · Capacitor Bank (faster charge) · Piercing Slug (hits everything in its path)
+- **Missiles:** Missile Racks to V · Missile Boosters to IV · Quick Lock (40% faster locks) · Cluster Warheads (wider, harder blasts) · Auto-Rearm (a missile every 40 s)
+- **Defense:** Hull Plating to VI · Shield Capacitors to V · Nanite Repair to V · Shield Matrix (+50 max shield per level) · Emergency Shield (refills your shield once per wave when your hull drops below 25%) · Reactive Armour (−40% from collisions, rams and mines)
+- **Engineering:** Thruster Tuning (+15% engine power per level) · **Afterburner** ◆ (R: 3 s of double thrust, 15 s cooldown) · Salvage Magnet (+50% pickup range per level) · Scrap Refinery (+20% scrap per level)
+
+The debug launcher has **MK2** and **MK2 + ALL TECH** presets for testing.
+
 ## Enemies after the first boss
 
 New types join one at a time, and the first appearance of each gets a NEW CONTACT banner explaining it.
@@ -97,6 +110,8 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 | Q | Fire a homing missile once locked (2 per wave on Normal, refilled each wave) |
 | B | Docking assist: the autopilot flies the rendezvous (any thrust key cancels). With a Dreadnought alive it parks you 600 m behind it instead |
 | F | Undock from the station |
+| Right mouse | Railgun (MK2 tech): hold to charge, release to fire |
+| R | Afterburner (MK2 tech): 3 s of double engine power |
 | N | Call the next wave early |
 | , / . | Time warp between waves: slower / faster through 1×, 2×, 3×, 5×, 10×. Only when no hostiles are around; it drops back to 1× 10 s before the next wave, or if any pilot is hit. In multiplayer it's shared: any pilot can change it, unless the host ticked HOST-ONLY TIME WARP in the waiting room |
 | T | Show / hide the performance counter: FPS, average and worst frame time, CPU time per frame, render resolution |

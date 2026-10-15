@@ -172,6 +172,61 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
     addFlame(model, s * 0.52, 0, 2.38, 0.26, flameColor, flames);
   }
 
+  // --- MK2 refit (shown once bought): wingtip nacelles, gold trim, dorsal fin, canards ---
+  const mk2 = new THREE.Group();
+  mk2.visible = false;
+  model.add(mk2);
+  const gold = new THREE.MeshBasicMaterial({ color: hdr(0xffc860, 2.6) });
+  const zCyl = (rt, rb, len, seg, mat) => new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, len, seg).rotateX(Math.PI / 2), mat);
+  for (const s of [1, -1]) {
+    const nac = zCyl(0.14, 0.2, 1.7, 12, dark);
+    nac.position.set(s * 2.5, -0.04, 1.0);
+    mk2.add(nac);
+    const cowl = zCyl(0.16, 0.16, 0.5, 12, hull);
+    cowl.position.set(s * 2.5, -0.04, 0.35);
+    mk2.add(cowl);
+    const nring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.025, 6, 16), gold);
+    nring.position.set(s * 2.5, -0.04, 1.86);
+    mk2.add(nring);
+    addFlame(mk2, s * 2.5, -0.04, 1.88, 0.15, flameColor, flames);
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 2.2), gold);
+    trim.position.set(s * 0.34, 0.25, -0.3);
+    trim.rotation.y = s * -0.05;
+    mk2.add(trim);
+    const canard = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.04, 0.32), hull);
+    canard.position.set(s * 0.55, 0.02, -1.55);
+    canard.rotation.y = s * 0.35;
+    mk2.add(canard);
+    const cTip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.3), gold);
+    cTip.position.set(s * 0.9, 0.02, -1.42);
+    cTip.rotation.y = s * 0.35;
+    mk2.add(cTip);
+  }
+  const dorsal = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 1.1), dark);
+  dorsal.position.set(0, 0.55, 1.35);
+  dorsal.rotation.x = 0.35;
+  mk2.add(dorsal);
+  const dorsalEdge = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 1.1), gold);
+  dorsalEdge.position.set(0, 0.83, 1.45);
+  dorsalEdge.rotation.x = 0.35;
+  mk2.add(dorsalEdge);
+
+  // --- railgun (shown once researched): a long barrel slung under the nose ---
+  const rail = new THREE.Group();
+  rail.visible = false;
+  model.add(rail);
+  const barrel = zCyl(0.08, 0.1, 3.4, 10, dark);
+  barrel.position.set(0, -0.32, -1.3);
+  rail.add(barrel);
+  for (let i = 0; i < 4; i++) {
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.03, 6, 14), accent);
+    coil.position.set(0, -0.32, -0.3 - i * 0.55);
+    rail.add(coil);
+  }
+  const railTip = zCyl(0.11, 0.11, 0.12, 10, accent);
+  railTip.position.set(0, -0.32, -3.0);
+  rail.add(railTip);
+
   // nav lights
   const navL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: hdr(0xff2030, 4) }));
   navL.position.set(-2.72, 0.02, 1.55);
@@ -180,7 +235,8 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
   model.add(navL, navR);
 
   return {
-    group, model, flames, navLights: [navL, navR],
+    group, model, flames, navLights: [navL, navR], mk2, rail,
+    railMuzzle: new THREE.Vector3(0, -0.32, -3.1),
     muzzles: [new THREE.Vector3(2.0, -0.08, -1.0), new THREE.Vector3(-2.0, -0.08, -1.0)],
     engines: [new THREE.Vector3(0.52, 0, 2.4), new THREE.Vector3(-0.52, 0, 2.4)],
   };

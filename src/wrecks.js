@@ -58,7 +58,7 @@ export class WreckSystem {
     this._remove(w);
   }
 
-  update(dt, time, player, canCollect) {
+  update(dt, time, player, canCollect, range = COLLECT_RANGE) {
     for (const w of this.list) {
       if (!w.alive) continue;
       w.life -= dt;
@@ -75,7 +75,7 @@ export class WreckSystem {
         this.particles.emit(w.pos.x, w.pos.y, w.pos.z, w.vel.x + (Math.random() - 0.5) * 3, w.vel.y + (Math.random() - 0.5) * 3, w.vel.z + (Math.random() - 0.5) * 3,
           0.7, 0.3, 0.1, 0.8, 2.4, 0.8, false);
       }
-      if (canCollect && w.pos.distanceTo(player.pos) < COLLECT_RANGE) this.collect(w, player.pos, player.vel, 'ship');
+      if (canCollect && w.pos.distanceTo(player.pos) < range) this.collect(w, player.pos, player.vel, 'ship');
     }
     this.list = this.list.filter((w) => w.alive);
   }

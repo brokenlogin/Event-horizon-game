@@ -66,6 +66,8 @@ export class MissileSystem {
     this.capacity = MISSILES_PER_WAVE;   // raised by the Missile Racks upgrade
     this.speedMult = 1;                  // raised by the Missile Boosters upgrade
     this.rangeBonus = 0;                 // m of extra lock range, also from Missile Boosters
+    this.lockTimeMult = 1;               // MK2 Quick Lock
+    this.cluster = false;                // MK2 Cluster Warheads: wider, harder blasts
     this.ammo = MISSILES_PER_WAVE;
     this.lockState = 'idle';  // idle | locking | locked
     this.lockKind = 'enemy';  // enemy | salvage
@@ -198,7 +200,7 @@ export class MissileSystem {
         this.cancelLock(true);
         if (player.alive) { this.ctx.hud.notice('LOCK LOST', 'red'); audio.beep(300, 0.2, 0.06, 'sawtooth'); }
       } else if (this.lockState === 'locking') {
-        this.lockProgress = Math.min(1, this.lockProgress + dt / (this.lockKind === 'salvage' ? SALVAGE_LOCK_TIME : LOCK_TIME));
+        this.lockProgress = Math.min(1, this.lockProgress + dt / ((this.lockKind === 'salvage' ? SALVAGE_LOCK_TIME : LOCK_TIME) * this.lockTimeMult));
         this.beepTimer -= dt;
         if (this.beepTimer <= 0) {
           audio.beep(900 + this.lockProgress * 700, 0.04, 0.05, 'sine');
@@ -331,7 +333,7 @@ export class MissileSystem {
         if (!e.alive) continue;
         if (e === direct) { hitEnemy(e, DAMAGE, m.pos, 'missile'); continue; }
         const d = e.pos.distanceTo(m.pos);
-        if (d < SPLASH_RADIUS) hitEnemy(e, SPLASH_DAMAGE, e.pos, 'missile');
+        if (d < SPLASH_RADIUS * (this.cluster ? 2 : 1)) hitEnemy(e, SPLASH_DAMAGE * (this.cluster ? 2.5 : 1), e.pos, 'missile');
       }
       if (player.alive && dist < SPLASH_RADIUS) damagePlayer(10, { cause: 'CAUGHT IN YOUR OWN BLAST' });
     }
