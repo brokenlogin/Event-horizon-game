@@ -527,3 +527,17 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 #rail-target span { position: absolute; left: 22px; top: -6px; font-family: var(--font-display); font-size: 9px; letter-spacing: 2px; }
 #rail-target.full { color: #fff; }
 #rail-target.full i { opacity: 1; animation: blink 0.3s steps(2) infinite; }
+
+/* custom difficulty editor */
+#custom-diff { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 4, 10, 0.7); pointer-events: auto; }
+.cd-card { max-width: 560px; }
+.cd-rows { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.cd-row { display: grid; grid-template-columns: 150px 1fr 92px; align-items: center; gap: 14px; }
+.cd-name { font-family: var(--font-display); font-size: 11px; letter-spacing: 3px; color: #d9f6ff; text-align: left; }
+.cd-row input[type="range"] { pointer-events: auto; width: 100%; accent-color: var(--cyan); }
+.cd-num { display: flex; align-items: center; gap: 4px; font-family: var(--font-display); font-size: 12px; color: rgba(217, 246, 255, 0.7); }
+.cd-num input { pointer-events: auto; width: 64px; padding: 6px 6px; font-family: var(--font-display); font-size: 13px; text-align: right; color: #fff; background: rgba(5, 20, 32, 0.7); border: 1px solid var(--cyan-dim); outline: none; }
+.cd-num input:focus { border-color: var(--cyan); }
+.cd-buttons { display: flex; gap: 12px; margin-top: 6px; }
+.cd-buttons .btn { min-width: 0; padding-left: 24px; padding-right: 24px; }
+.diff-opts button[data-diff="custom"].on { background: #c59bff; border-color: #c59bff; box-shadow: 0 0 18px rgba(197, 155, 255, 0.45); }

@@ -366,14 +366,39 @@ const game = {
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
 const DIFFICULTIES = {
-  easy: { name: 'EASY', dmg: 0.65, missiles: 3, count: 0.7, desc: '30% fewer enemies · 35% less damage · 3 missiles per wave' },
-  normal: { name: 'NORMAL', dmg: 1, missiles: 2, count: 1, desc: 'Standard waves · standard damage · 2 missiles per wave' },
-  hard: { name: 'HARD', dmg: 1.3, missiles: 1, count: 1.35, desc: '35% more enemies · 30% more damage · 1 missile per wave' },
+  easy: { name: 'EASY', dmg: 0.65, missiles: 3, count: 0.7, hp: 1, price: 1, desc: '30% fewer enemies · 35% less damage · 3 missiles per wave' },
+  normal: { name: 'NORMAL', dmg: 1, missiles: 2, count: 1, hp: 1, price: 1, desc: 'Standard waves · standard damage · 2 missiles per wave' },
+  hard: { name: 'HARD', dmg: 1.3, missiles: 1, count: 1.35, hp: 1, price: 1, desc: '35% more enemies · 30% more damage · 1 missile per wave' },
+  custom: { name: 'CUSTOM', missiles: 2 },   // the numbers come from customDef()
 };
+// Custom difficulty: four percentages. Sliders cover 50–150%; the boxes take anything in these limits.
+const CUSTOM_FIELDS = [
+  { key: 'count', name: 'ENEMY COUNT', min: 10, max: 1000 },
+  { key: 'dmg', name: 'ENEMY DAMAGE', min: 0, max: 1000 },
+  { key: 'hp', name: 'ENEMY HEALTH', min: 10, max: 1000 },
+  { key: 'price', name: 'UPGRADE PRICES', min: 0, max: 1000 },
+];
+function sanitizeCustom(c) {
+  const out = {};
+  for (const f of CUSTOM_FIELDS) {
+    const v = Number((c || {})[f.key]);
+    out[f.key] = Number.isFinite(v) ? THREE.MathUtils.clamp(Math.round(v), f.min, f.max) : 100;
+  }
+  return out;
+}
+let customDiff = sanitizeCustom(store.get('eh_custom', {}));   // this player's custom settings
+function customDef(c) {
+  return {
+    name: 'CUSTOM', missiles: 2, dmg: c.dmg / 100, count: c.count / 100, hp: c.hp / 100, price: c.price / 100,
+    desc: `Enemies ${c.count}% · damage ${c.dmg}% · health ${c.hp}% · prices ${c.price}% · 2 missiles`,
+  };
+}
+const diffInfo = (d, c = customDiff) => (d === 'custom' ? customDef(c) : DIFFICULTIES[d]);
 const validDifficulty = (d) => (Object.hasOwn(DIFFICULTIES, d) ? d : 'normal');
 let difficulty = validDifficulty(store.get('eh_difficulty', 'normal'));   // what this player picked
 game.difficulty = difficulty;                                              // what the current run uses
-const diffDef = () => DIFFICULTIES[game.difficulty];
+game.custom = customDiff;                                                  // its custom numbers (the host's in multiplayer)
+const diffDef = () => diffInfo(game.difficulty, game.custom);
 const bestKey = (d) => (d === 'normal' ? 'eh_best' : `eh_best_${d}`);
 let best = store.get(bestKey(difficulty), 0);
 
@@ -499,7 +524,9 @@ function pilotCount() {
   return net.isHost ? 1 + net.openLinks().length : Math.max(2, mp.players.size);
 }
 function enemyScale() { return 1 + ENEMIES_PER_PILOT * (pilotCount() - 1); }
-function costScale() { return 1 + COST_PER_PILOT * (pilotCount() - 1); }
+function costScale() { return (1 + COST_PER_PILOT * (pilotCount() - 1)) * diffDef().price; }
+/** Enemy health on this difficulty. */
+function scaleEnemyHp(e) { e.hp = e.maxHp = e.def.hp * diffDef().hp; }
 
 // Every fifth wave a dreadnought (boss) takes up a low orbit, with a lighter escort.
 const BOSS_EVERY = 5;
@@ -610,8 +637,8 @@ function spawnBoss(e) {
   // tougher with each appearance, and with every extra pilot
   const appearance = Math.max(1, Math.round(game.wave / BOSS_EVERY));
   const grow = 1 + 0.3 * (appearance - 1);
-  e.maxHp = e.hp = Math.round(e.def.hp * enemyScale() * grow);
-  const turretHp = e.def.turret.hp * (1 + 0.5 * (pilotCount() - 1)) * grow;
+  e.maxHp = e.hp = Math.round(e.def.hp * enemyScale() * grow * diffDef().hp);
+  const turretHp = e.def.turret.hp * (1 + 0.5 * (pilotCount() - 1)) * grow * diffDef().hp;
   for (const t of e.turrets) t.hp = t.maxHp = turretHp;
   e.mesh.position.copy(pos);
   e.mesh.quaternion.copy(e.quat);
@@ -632,6 +659,7 @@ function bossWarpFx(e) {
 
 function spawnEnemy(type) {
   const e = new Enemy(type, scene, game.wave - 1);
+  scaleEnemyHp(e);
   if (e.def.boss) { spawnBoss(e); return; }
   const pos = new THREE.Vector3(), vel = new THREE.Vector3();
   // in multiplayer, place each newcomer relative to a random pilot
@@ -721,6 +749,7 @@ function bossLaunch(e, li) {
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
   const s = new Enemy('seeker', scene, game.wave - 1);
+  scaleEnemyHp(s);
   s.launched = true;
   s.noWreck = true;
   const fwd = forwardOf(e.quat, _v3);
@@ -980,6 +1009,7 @@ function layMine(s) {
   for (const x of game.enemies) if (x.alive && x.owner === s.netId) out++;
   if (out >= s.def.maxMines) return;
   const m = new Enemy('mine', scene, game.wave - 1);
+  scaleEnemyHp(m);
   m.owner = s.netId;
   const back = forwardOf(s.quat, _v1).negate();
   m.pos.copy(s.pos).addScaledVector(back, 6);
@@ -1690,6 +1720,7 @@ function startGame(opts = {}) {
     mp: multiplayer,
     debug: !!opts.debug,
     difficulty: validDifficulty(multiplayer ? mp.difficulty : difficulty),
+    custom: multiplayer ? { ...mp.custom } : { ...customDiff },
     // in multiplayer the host runs the waves; guests follow its clock
     score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 8 : 4, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
@@ -1826,9 +1857,59 @@ function renderDifficulty() {
       b.classList.toggle('on', b.dataset.diff === d);
       b.disabled = inLobby && !net.isHost;
     }
-    el.querySelector('.diff-desc').textContent = DIFFICULTIES[d].desc + (inLobby && !net.isHost ? ' · set by the host' : '');
+    const info = diffInfo(d, inLobby && !net.isHost ? mp.custom : customDiff);
+    const edit = d === 'custom' && !(inLobby && !net.isHost) ? ' · click CUSTOM to edit' : '';
+    el.querySelector('.diff-desc').textContent = info.desc + (inLobby && !net.isHost ? ' · set by the host' : edit);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Custom difficulty editor
+// ---------------------------------------------------------------------------
+const customEl = document.getElementById('custom-diff');
+function renderCustomEditor() {
+  document.getElementById('cd-rows').innerHTML = CUSTOM_FIELDS.map((f) => {
+    const v = customDiff[f.key];
+    return `<div class="cd-row"><span class="cd-name">${f.name}</span>`
+      + `<input type="range" min="50" max="150" step="5" value="${THREE.MathUtils.clamp(v, 50, 150)}" data-key="${f.key}">`
+      + `<label class="cd-num"><input type="number" min="${f.min}" max="${f.max}" step="1" value="${v}" data-key="${f.key}">%</label></div>`;
+  }).join('');
+}
+function setCustom(key, value, fromSlider) {
+  customDiff = sanitizeCustom({ ...customDiff, [key]: value });
+  store.set('eh_custom', customDiff);
+  const row = customEl.querySelector(`input[type="range"][data-key="${key}"]`).closest('.cd-row');
+  if (fromSlider) row.querySelector('input[type="number"]').value = customDiff[key];
+  else row.querySelector('input[type="range"]').value = THREE.MathUtils.clamp(customDiff[key], 50, 150);
+  if (net.isHost) broadcastRoster();
+  renderDifficulty();
+}
+function openCustomEditor() { renderCustomEditor(); customEl.classList.remove('hidden'); }
+function closeCustomEditor() { customEl.classList.add('hidden'); renderDifficulty(); }
+customEl.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t.dataset.key) return;
+  if (t.type === 'range') setCustom(t.dataset.key, Number(t.value), true);
+});
+customEl.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.type !== 'number' || !t.dataset.key) return;
+  setCustom(t.dataset.key, Number(t.value), false);
+  t.value = customDiff[t.dataset.key];   // show the value after limits
+});
+customEl.addEventListener('keydown', (e) => { if (e.code === 'Enter' && e.target.type === 'number') e.target.blur(); });
+customEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (e.target.closest('#cd-done') || e.target === customEl) { audio.uiClick(); closeCustomEditor(); }
+  if (e.target.closest('#cd-reset')) {
+    audio.uiClick();
+    customDiff = sanitizeCustom({});
+    store.set('eh_custom', customDiff);
+    renderCustomEditor();
+    if (net.isHost) broadcastRoster();
+    renderDifficulty();
+  }
+});
 for (const b of document.querySelectorAll('.diff-picker button[data-diff]')) {
   b.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1839,6 +1920,7 @@ for (const b of document.querySelectorAll('.diff-picker button[data-diff]')) {
     if (net.isHost) { mp.difficulty = difficulty; broadcastRoster(); }
     renderDifficulty();
     updateBest();
+    if (difficulty === 'custom') openCustomEditor();
   });
   b.addEventListener('mouseenter', () => { if (!b.disabled) audio.uiHover(); });
 }
@@ -2780,6 +2862,7 @@ const mp = {
   reqId: 0, pending: new Map(), deadIds: new Set(),
   spectating: false, spectateId: -1, wipeTimer: 0, reviveBanner: '',
   difficulty: 'normal',    // the host's pick; every pilot flies with it
+  custom: sanitizeCustom({}),   // the host's custom-difficulty numbers
   hostWarp: false,         // host's setting: only the host controls time warp
   warpDropAsked: false,
 };
@@ -2879,6 +2962,7 @@ function applyEnemySnapshot(msg) {
     let e = game.enemies.find((x) => x.netId === id);
     if (!e) {
       e = new Enemy(type, scene, Math.max(0, game.wave - 1), id);
+      e.maxHp = e.def.hp * diffDef().hp;   // for health bars (the dreadnought's comes in the snapshot)
       e.proxy = true;
       e.applyNet(_snap, now);
       if (e.turrets) {
@@ -3085,7 +3169,8 @@ function hostStart() {
   net.lockRoom();
   mp.epoch = net.netTime();
   mp.difficulty = difficulty;
-  net.sendEvent({ k: 'start', epoch: mp.epoch, df: mp.difficulty, hw: mp.hostWarp ? 1 : 0 });
+  mp.custom = { ...customDiff };
+  net.sendEvent({ k: 'start', epoch: mp.epoch, df: mp.difficulty, cd: mp.custom, hw: mp.hostWarp ? 1 : 0 });
   startMultiplayer();
 }
 
@@ -3093,7 +3178,8 @@ function broadcastRoster() {
   if (!net.isHost) return;
   mp.players.set(0, { name: callsign, ready: true });
   mp.difficulty = difficulty;
-  net.sendEvent({ k: 'roster', df: difficulty, hw: mp.hostWarp ? 1 : 0, players: [...mp.players.entries()].map(([id, p]) => [id, p.name, p.ready ? 1 : 0]) });
+  mp.custom = { ...customDiff };
+  net.sendEvent({ k: 'roster', df: difficulty, cd: customDiff, hw: mp.hostWarp ? 1 : 0, players: [...mp.players.entries()].map(([id, p]) => [id, p.name, p.ready ? 1 : 0]) });
   renderRoom();
 }
 
@@ -3233,6 +3319,7 @@ net.on('hello', (m) => {             // host: a guest introduced themselves
 net.on('roster', (m) => {            // guest: who's in the room
   mp.players = new Map(m.players.map(([id, name, ready]) => [id, { name, ready: !!ready }]));
   mp.difficulty = validDifficulty(m.df);
+  mp.custom = sanitizeCustom(m.cd);
   mp.hostWarp = !!m.hw;
   for (const [id, r] of remotes) if (!mp.players.has(id)) { r.dispose(); remotes.delete(id); }
   for (const [id, r] of remotes) r.name = pilotName(id);
@@ -3249,6 +3336,7 @@ net.on('name', (m) => {              // host: a guest renamed
 net.on('start', (m) => {             // guest
   mp.epoch = m.epoch;
   mp.difficulty = validDifficulty(m.df);
+  mp.custom = sanitizeCustom(m.cd);
   mp.hostWarp = !!m.hw;
   if (net.synced) startMultiplayer();
   else { mp.pendingStart = true; setLobbyStatus('Syncing clocks', 'busy'); }
