@@ -684,7 +684,25 @@ export function buildDreadnought() {
     turrets.push({ local: head.position.clone(), normal, head, stub, ring, muzzle: 13 });
   }
 
-  return { group, model, flames, mats: [m.hull, m.dark, plate], radius: 33, ringPivot, core, coreGlow, turrets, launchers, muzzles: [] };
+  // spinal railgun: emitter in the prow and an aim line (telegraph) shown while it charges
+  const emitter = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 10), new THREE.MeshBasicMaterial({ color: hdr(0xff2a3c, 3) }));
+  emitter.position.z = -46;
+  model.add(emitter);
+  const emitterGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0xff3a3a, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+  emitterGlow.position.z = -46;
+  emitterGlow.scale.setScalar(26);
+  model.add(emitterGlow);
+  const telegraph = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1, true).rotateX(Math.PI / 2).translate(0, 0, -0.5),
+    new THREE.MeshBasicMaterial({ color: hdr(0xff3a3a, 2.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  telegraph.position.z = -48;
+  telegraph.scale.set(1, 1, 2600);
+  telegraph.visible = false;
+  telegraph.frustumCulled = false;
+  group.add(telegraph);
+
+  return { group, model, flames, mats: [m.hull, m.dark, plate], radius: 33, ringPivot, emitter, emitterGlow, telegraph, core, coreGlow, turrets, launchers, muzzles: [] };
 }
 
 // ---------------------------------------------------------------------------

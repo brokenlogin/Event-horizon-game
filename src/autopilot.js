@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { integrate, accelAt, circularSpeed } from './physics.js';
+import { integrate, accelAt } from './physics.js';
 
 // ---------------------------------------------------------------------------
 // Docking assist (B). A small model-predictive autopilot:
@@ -39,43 +39,48 @@ const _g = new THREE.Vector3();
 const _sa = new THREE.Vector3();
 
 /**
- * A point that rides a circular orbit a fixed distance behind a body on that
- * orbit (used to park near the dreadnought). Same interface the assist uses
- * for the station: pos, vel, stateAt(dt, pos, vel), accel(out).
+ * Chase target for a body that moves under its own power (the dreadnought).
+ * Every frame it re-predicts where the body will coast over the planner's
+ * horizon, so the assist always aims at its latest course. Same interface the
+ * assist uses for the station: pos, vel, stateAt(dt, pos, vel), accel(out).
  */
-export class TrailPoint {
+export class BodyTarget {
   constructor() {
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
     this.body = null;
-    this.normal = new THREE.Vector3(0, 1, 0);
-    this.lag = 0;            // radians behind the body
-    this.omega = 0;
+    this.n = Math.ceil(HORIZON / SIM_DT) + 2;
+    this.P = new Float32Array(this.n * 3);
+    this.V = new Float32Array(this.n * 3);
   }
 
-  /** Follow `body` (with orbitR / orbitN) at `standoff` metres behind it. */
-  follow(body, standoff) {
-    this.body = body;
-    this.normal.copy(body.orbitN);
-    this.omega = circularSpeed(body.orbitR) / body.orbitR;
-    this.lag = standoff / body.orbitR;
-    this.stateAt(0, this.pos, this.vel);
+  follow(body) { this.body = body; this.update(); }
+
+  update() {
+    if (!this.body) return;
+    this.pos.copy(this.body.pos);
+    this.vel.copy(this.body.vel);
+    _tp.copy(this.pos); _tv.copy(this.vel);
+    for (let i = 0; i < this.n; i++) {
+      if (i) integrate(_tp, _tv, null, SIM_DT);
+      _tp.toArray(this.P, i * 3);
+      _tv.toArray(this.V, i * 3);
+    }
   }
 
   stateAt(dt, pos, vel) {
-    const a = this.omega * dt - this.lag;
-    pos.copy(this.body.pos).applyAxisAngle(this.normal, a);
-    vel.copy(this.body.vel).applyAxisAngle(this.normal, a);
+    const f = THREE.MathUtils.clamp(dt / SIM_DT, 0, this.n - 1.001);
+    const i = Math.floor(f), w = f - i;
+    pos.fromArray(this.P, i * 3).lerp(_rh.fromArray(this.P, i * 3 + 3), w);
+    vel.fromArray(this.V, i * 3).lerp(_rh.fromArray(this.V, i * 3 + 3), w);
   }
 
-  update() { if (this.body) this.stateAt(0, this.pos, this.vel); }
-
-  accel(out) { return out.copy(this.pos).multiplyScalar(-this.omega * this.omega); }
+  accel(out) { return accelAt(this.pos, out); }
 }
 
 export class DockAssist {
   constructor(station, maxAccel) {
-    this.station = station;           // the current target (the station, or a TrailPoint)
+    this.station = station;           // the current target (the station, or a BodyTarget)
     this.stopAt = 120;                // m short of the target where the terminal approach settles
     this.maxAccel = maxAccel;
     this.active = false;

@@ -37,15 +37,17 @@ Their wrecks are worth 20 (lancer), 25 (sower) and 30 (aegis) scrap.
 
 ## The Dreadnought (every 5th wave)
 
-On waves 5, 10, 15 and so on, an enemy fortress warps in on a fixed, slightly inclined orbit at 1350 m, with a smaller escort than usual.
+On waves 5, 10, 15 and so on, an enemy fortress warps in with a smaller escort than usual, and comes hunting.
 
+- **It pursues you.** It closes on the nearest pilot at up to about 55 m/s and settles about 550 m away, matching your orbit. It accelerates more slowly than your ship, so you can outrun it, and it keeps clear of the hole.
 - **Armour:** 200 hull, plus 30% more on each later appearance and ×crew size in multiplayer. Its health bar sits at the top of the screen.
-- **Six turrets**, each covering its own side of the hull (top, bottom, port, starboard). The hull and the hole block their aim. Destroying one is worth 250 points.
-- **Seeker launcher** in the prow: whenever a pilot is within 1.5 km and in sight, it sends out a seeker drone every 7 seconds or so (at most 3 out at once, more with a bigger crew). Launched seekers leave no wreck.
+- **Six turrets**, each covering its own side of the hull (top, bottom, port, starboard), firing 4-round bursts out to 1300 m. The hull and the hole block their aim. Destroying one is worth 250 points.
+- **Railgun:** like a lancer's but heavier. A red aim line from its nose tracks you, flashes when it locks, then fires a 40-damage beam about a second later. Thrust across the line to dodge; the HUD warns "DREADNOUGHT RAILGUN CHARGING" and "BEAM LOCKED".
+- **Seeker launcher:** a pair of seekers (one per tube) every 6–8 s whenever a pilot is within 2.2 km and in sight (up to 4 out at once, +2 per extra pilot). You get a "SEEKERS LAUNCHED" alert, then "⚠ SEEKER INBOUND · 640 m" with a beep that speeds up as one closes. Launched seekers leave no wreck.
 - **Lock range:** your missiles lock onto it from 2000 m (double the usual), and aiming anywhere on the hull counts.
-- **Intercept:** with a Dreadnought on the field, B flies you to a parking spot 600 m behind it on its own orbit, then hands control back.
+- **Intercept:** with a Dreadnought on the field, B chases it down and holds you 600 m off, then hands control back.
 - **Ramming** it just bounces you off and hurts.
-- **Destroying it** is worth 3000 points and leaves a hulk worth 150 scrap.
+- **Destroying it** is worth 3000 points and leaves a hulk worth 250 scrap.
 
 ## Debug launch
 

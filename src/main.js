@@ -18,7 +18,7 @@ import { GameAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
 import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
-import { DockAssist, TrailPoint } from './autopilot.js';
+import { DockAssist, BodyTarget } from './autopilot.js';
 import { Radar3D } from './radar3d.js';
 import { net, PROTOCOL, MAX_PILOTS, normalizeCode, parseShareCode } from './net.js';
 import { RemotePlayer } from './remote.js';
@@ -704,9 +704,10 @@ function turretFire(e, t) {
   fwd.x += rand(-jitter, jitter); fwd.y += rand(-jitter, jitter); fwd.z += rand(-jitter, jitter);
   fwd.normalize();
   _q1Vec.copy(e.vel).addScaledVector(fwd, td.boltSpeed);
-  enemyBolts.spawn(muzzle, _q1Vec, 4.2, td.dmg);
+  const life = td.range / td.boltSpeed + 1;   // long enough to reach its full range
+  enemyBolts.spawn(muzzle, _q1Vec, life, td.dmg);
   enemyFireFx(muzzle, e.vel, false);
-  if (game.mp) net.sendEvent({ k: 'ef', t: worldNow(), p: r2(muzzle), ev: r2(e.vel), v: r2(_q1Vec), dmg: td.dmg, w: 0 });
+  if (game.mp) net.sendEvent({ k: 'ef', t: worldNow(), p: r2(muzzle), ev: r2(e.vel), v: r2(_q1Vec), dmg: td.dmg, w: 0, l: round2(life) });
 }
 
 /**
@@ -715,7 +716,7 @@ function turretFire(e, t) {
  * Returns false when too many of its drones are already out.
  */
 function bossLaunch(e, li) {
-  const cap = 2 + pilotCount();
+  const cap = 4 + 2 * (pilotCount() - 1);   // pairs per volley
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
@@ -733,7 +734,19 @@ function bossLaunch(e, li) {
   s.trail.reset(s.pos);
   game.enemies.push(s);
   launchFx(s.pos, s.vel);
+  if (li === 0) {   // one alert per pair
+    seekerLaunchAlert(s.pos);
+    if (game.mp) net.sendEvent({ k: 'sl', p: r2(s.pos) });
+  }
   return true;
+}
+
+/** Seekers just left the dreadnought's tubes: warn anyone in reach. */
+function seekerLaunchAlert(pos) {
+  if (!player.alive || pos.distanceTo(player.pos) > 2600) return;
+  hud.notice('⚠ SEEKERS LAUNCHED FROM THE DREADNOUGHT', 'red');
+  audio.beep(1250, 0.1, 0.07, 'square');
+  setTimeout(() => audio.beep(1250, 0.1, 0.07, 'square'), 140);
 }
 
 function launchFx(pos, vel) {
@@ -927,8 +940,9 @@ function drawBeam(origin, dir, len, color = LANCER_BEAM) {
   }
 }
 
-function fireBeam(origin, dir, len, dmg) {
-  drawBeam(origin, dir, len);
+const BOSS_BEAM = new THREE.Color(0xff3a3a).multiplyScalar(3.2);
+function fireBeam(origin, dir, len, dmg, boss = false) {
+  drawBeam(origin, dir, len, boss ? BOSS_BEAM : LANCER_BEAM);
   const light = flashLights[flashIdx];
   flashIdx = (flashIdx + 1) % flashLights.length;
   light.position.copy(origin);
@@ -941,7 +955,7 @@ function fireBeam(origin, dir, len, dmg) {
   const miss = _v2.addScaledVector(dir, -t).length();
   audio.beam(THREE.MathUtils.clamp(1.4 - Math.min(miss, origin.distanceTo(player.pos)) / 900, 0.1, 1));
   if (!player.alive) return;
-  if (miss < player.radius + 0.8) {
+  if (miss < player.radius + (boss ? 2.5 : 0.8)) {
     damagePlayer(dmg * diffDef().dmg, { cause: 'BURNED BY A LANCER BEAM' });
     game.trauma = 1;
     sparks(player.pos, player.vel, 30, 0.6, 2.0, 0.9, 30);
@@ -952,10 +966,12 @@ function fireBeam(origin, dir, len, dmg) {
 
 function lancerFire(e) {
   const dir = forwardOf(e.quat, new THREE.Vector3());
-  const origin = e.pos.clone().addScaledVector(dir, 7.2);
+  const origin = e.pos.clone().addScaledVector(dir, e.def.muzzle || 7.2);
   const len = beamLength(origin, dir, e.def.beamRange);
-  fireBeam(origin, dir, len, e.def.beamDmg);
-  if (game.mp) net.sendEvent({ k: 'beam', p: r2(origin), d: [dir.x, dir.y, dir.z].map((x) => Math.round(x * 1e5) / 1e5), l: Math.round(len), dmg: e.def.beamDmg });
+  const boss = !!e.def.boss;
+  fireBeam(origin, dir, len, e.def.beamDmg, boss);
+  if (boss) { game.trauma = Math.min(1, game.trauma + 0.4); audio.explosion(0.8, 0.6); }
+  if (game.mp) net.sendEvent({ k: 'beam', p: r2(origin), d: [dir.x, dir.y, dir.z].map((x) => Math.round(x * 1e5) / 1e5), l: Math.round(len), dmg: e.def.beamDmg, b: boss ? 1 : 0 });
 }
 
 /** A sower drops a mine behind it (host / solo); capped per sower. */
@@ -1093,9 +1109,9 @@ function updateBossBlasts(dt) {
 const station = new Station(scene);
 const wrecks = new WreckSystem(scene, particles);
 const dockAssist = new DockAssist(station, MAIN_THRUST);
-// With a dreadnought on the field, B flies you to a parking spot on its orbit instead
+// With a dreadnought on the field, B chases it down and holds you this far off
 const BOSS_STANDOFF = 600;
-const bossPark = new TrailPoint();
+const bossPark = new BodyTarget();
 const liveBoss = () => game.enemies.find((e) => e.alive && e.def.boss && e.orbitR) || null;
 
 wrecks.onCollect = (w, by) => {
@@ -1376,9 +1392,9 @@ function toggleDockAssist() {
   }
   const boss = liveBoss();
   if (boss) {
-    bossPark.follow(boss, BOSS_STANDOFF);
+    bossPark.follow(boss);
     dockAssist.station = bossPark;
-    dockAssist.stopAt = 0;
+    dockAssist.stopAt = BOSS_STANDOFF;
   } else {
     dockAssist.station = station;
     dockAssist.stopAt = 120;
@@ -1386,7 +1402,7 @@ function toggleDockAssist() {
   dockAssist.engage();
   audio.beep(880, 0.08, 0.05, 'sine');
   setTimeout(() => audio.beep(1320, 0.1, 0.05, 'sine'), 80);
-  hud.notice(boss ? `INTERCEPT ENGAGED · PARKING ${BOSS_STANDOFF} m BEHIND THE DREADNOUGHT · THRUST TO CANCEL` : 'DOCKING ASSIST ENGAGED · ANY THRUST KEY TO CANCEL', boss ? 'orange' : 'green');
+  hud.notice(boss ? `INTERCEPT ENGAGED · CLOSING TO ${BOSS_STANDOFF} m OF THE DREADNOUGHT · THRUST TO CANCEL` : 'DOCKING ASSIST ENGAGED · ANY THRUST KEY TO CANCEL', boss ? 'orange' : 'green');
 }
 
 /** Boss intercept: keep the parking spot moving with the fortress, and let go once we're there. */
@@ -1400,9 +1416,9 @@ function updateBossPark() {
   bossPark.update();
   const d = player.pos.distanceTo(bossPark.pos);
   const rel = _v1.subVectors(player.vel, bossPark.vel).length();
-  if (d < 90 && rel < 6) {
+  if (d < BOSS_STANDOFF + 120 && rel < 12) {
     dockAssist.disengage();
-    hud.notice(`HOLDING ${Math.round(player.pos.distanceTo(bossPark.body.pos))} m FROM THE DREADNOUGHT · YOU HAVE CONTROL`, 'green');
+    hud.notice(`IN RANGE · ${Math.round(d)} m FROM THE DREADNOUGHT · YOU HAVE CONTROL`, 'green');
     audio.beep(1320, 0.1, 0.05, 'sine');
   }
 }
@@ -2492,23 +2508,38 @@ function tick(rawDt, render) {
       if (player.hull < 30) warnings.push({ text: 'HULL CRITICAL', color: 'red' });
       let seekerNear = false;
       for (const e of game.enemies) if (e.type === 'seeker' && e.pos.distanceTo(player.pos) < 140) seekerNear = true;
+      // seekers closing on you: warn well before they arrive, beeping faster as they close
+      let inbound = Infinity;
+      for (const e of game.enemies) {
+        if (!e.alive || e.type !== 'seeker') continue;
+        const to = _v1.subVectors(player.pos, e.renderPos);
+        const d = to.length();
+        if (d > 1400 || d < 140) continue;
+        const closing = _v2.subVectors(e.vel, player.vel).dot(to) / d;
+        if (closing > 15) inbound = Math.min(inbound, d);
+      }
+      if (inbound < Infinity && !seekerNear) {
+        warnings.unshift({ text: `⚠ SEEKER INBOUND · ${Math.round(inbound)} m`, color: 'red' });
+        game.proximityBeep -= dt;
+        if (game.proximityBeep <= 0) { audio.beep(1500, 0.05, 0.05, 'sine'); game.proximityBeep = THREE.MathUtils.clamp(inbound / 1400, 0.12, 0.9); }
+      }
       let mineNear = false;
       for (const e of game.enemies) if (e.alive && e.def.inert && e.alert) mineNear = true;
       if (mineNear) warnings.push({ text: 'MINE PROXIMITY', color: 'orange' });
       // a lancer charging at you: its aim line points at your ship
       let lancer = null, lancerLocked = false;
       for (const e of game.enemies) {
-        if (!e.alive || e.type !== 'lancer' || e.charge <= 0) continue;
+        if (!e.alive || !e.built.telegraph || e.charge <= 0) continue;
         _v1.subVectors(player.pos, e.renderPos);
         const d = _v1.length();
-        if (d > 1600) continue;
+        if (d > (e.def.beamRange || 1600)) continue;
         const off = _v2.copy(forwardOf(e.quat, _v3)).cross(_v1.divideScalar(d)).length() * d;   // miss distance along the aim line
-        if (off < 40 && forwardOf(e.quat, _v3).dot(_v1) > 0) { lancer = e; lancerLocked = lancerLocked || e.locked; }
+        if (off < (e.def.boss ? 80 : 40) && forwardOf(e.quat, _v3).dot(_v1) > 0) { lancer = e; lancerLocked = lancerLocked || e.locked; }
       }
       if (lancer) {
         warnings.unshift(lancerLocked
           ? { text: '⚠ BEAM LOCKED — THRUST ACROSS ITS AIM', color: 'red' }
-          : { text: 'LANCER CHARGING ON YOU', color: 'orange' });
+          : { text: lancer.def.boss ? 'DREADNOUGHT RAILGUN CHARGING ON YOU' : 'LANCER CHARGING ON YOU', color: 'orange' });
         game.chargeBeep -= dt;
         if (game.chargeBeep <= 0) {
           audio.chargeTick(lancer.charge, 1, lancerLocked);
@@ -2816,7 +2847,7 @@ function sendWorld(dt) {
       const row = [e.netId, ENEMY_TYPES.indexOf(e.type), ...r2(e.pos), ...r2(e.vel), ...r2(e.thrust),
         round2(q.x), round2(q.y), round2(q.z), round2(q.w), Math.round(e.hp * 100) / 100, round2(e.throttle)];
       // the dreadnought also reports its full health and which turrets still stand
-      if (e.turrets) row.push(e.maxHp, e.turrets.reduce((mask, t, i) => mask | (t.alive ? 1 << i : 0), 0));
+      if (e.turrets) row.push(e.maxHp, e.turrets.reduce((mask, t, i) => mask | (t.alive ? 1 << i : 0), 0), Math.round(e.charge * 1000) / 1000);
       else if (e.def.weapon === 'beam') row.push(Math.round(e.charge * 1000) / 1000);   // lancer: how far into its charge
       list.push(row);
     }
@@ -2844,7 +2875,7 @@ function applyEnemySnapshot(msg) {
     _snap.hp = row[15]; _snap.th = row[16];
     const type = ENEMY_TYPES[row[1]] || 'raider';
     _snap.mhp = type === 'dread' ? row[17] || 0 : 0;
-    _snap.ch = type === 'lancer' ? row[17] || 0 : 0;
+    _snap.ch = type === 'lancer' ? row[17] || 0 : type === 'dread' ? row[19] || 0 : 0;
     let e = game.enemies.find((x) => x.netId === id);
     if (!e) {
       e = new Enemy(type, scene, Math.max(0, game.wave - 1), id);
@@ -3277,7 +3308,7 @@ net.on('ef', (m) => {                // an enemy fired: everyone simulates the s
   for (let i = 0; i < m.v.length; i += 3) {
     _v2.set(m.v[i], m.v[i + 1], m.v[i + 2]);
     _v3.copy(_v1).addScaledVector(_v2, late);
-    enemyBolts.spawn(_v3, _v2, 4.2 - late, m.dmg);
+    enemyBolts.spawn(_v3, _v2, (m.l || 4.2) - late, m.dmg);
   }
   _v2.fromArray(m.ev || [0, 0, 0]);
   enemyFireFx(_v1, _v2, !!m.w);
@@ -3297,9 +3328,10 @@ net.on('rail', (m) => {               // another pilot's railgun (visual; they a
   drawBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, RAIL_BEAM);
   audio.beam(THREE.MathUtils.clamp(1.2 - new THREE.Vector3().fromArray(m.p).distanceTo(player.pos) / 1200, 0.1, 0.8));
 });
+net.on('sl', (m) => { if (isGuest()) seekerLaunchAlert(new THREE.Vector3().fromArray(m.p)); });
 net.on('beam', (m) => {               // a lancer fired: draw it, and check it against our own ship
   if (!isGuest()) return;
-  fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg);
+  fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg, !!m.b);
 });
 // shared time warp
 net.on('warpReq', (m) => {            // host: a pilot wants a different warp

@@ -43,11 +43,17 @@ export const ENEMY_DEFS = {
   },
   // boss: an orbital fortress that holds one low orbit, defended by six turrets and a seeker launcher
   dread: {
-    boss: true, hp: 200, accel: 14, turn: 0.25, score: 3000, trailColor: 0xff2a3c, build: buildDreadnought,
+    boss: true, hp: 200, accel: 32, turn: 0.4, score: 3000, trailColor: 0xff2a3c, build: buildDreadnought,
+    // hunts the nearest pilot: closes at up to `approach` m/s and settles about `standoff` m away.
+    // Strong engines (it holds altitude against the hole) but a capped closing speed, so you can outrun it.
+    approach: 55, standoff: 550, minRadius: 1000,
     turret: {
-      hp: 10, range: 800, boltSpeed: 240, burst: 3, burstGap: 0.12, cooldown: [2.0, 3.0], dmg: 6, aimError: 6, turn: 1.5, score: 250,
+      hp: 10, range: 1300, boltSpeed: 240, burst: 3, burstGap: 0.11, cooldown: [1.4, 2.0], dmg: 5, aimError: 6, turn: 1.5, score: 250,
     },
-    launchCooldown: [6.5, 8.5], launchRange: 1500,
+    // seeker launcher: a pair (one per tube) per volley
+    launchCooldown: [6, 8], launchRange: 2200,
+    // spinal railgun, like a lancer's but heavier: tracks, locks (aim line flashes), fires
+    beam: true, charge: 3.0, lockAt: 1.9, beamDmg: 40, beamRange: 2600, fireRange: 2200, cooldown: [8, 11], muzzle: 48, beamWidth: 2.5,
   },
 };
 
@@ -71,6 +77,7 @@ const _qInv = new THREE.Quaternion();
 const _gA = new THREE.Vector3();
 const _gB = new THREE.Vector3();
 const _aim = new THREE.Vector3();
+const _thrustKeep = new THREE.Vector3();
 
 // the bubble drawn around ships an aegis is protecting (shared by all of them)
 let shieldMat = null;
@@ -226,6 +233,7 @@ export class Enemy {
     this.orbitN = new THREE.Vector3(0, 1, 0);
     this.orbitV = circularSpeed(this.orbitR);
     this.launchTimer = 5;
+    this.fireTimer = 6;          // first railgun shot a little after it arrives
     this.launcherIdx = 0;
     this.turrets = this.built.turrets.map((b, i) => ({
       ...b, index: i, owner: this, isTurret: true,
@@ -282,31 +290,87 @@ export class Enemy {
   thinkBoss(dt, game) {
     const def = this.def;
     this.age += dt;
-    // station-keeping: hold the circular orbit (gravity does nearly all the work)
+    const target = game.nearestPilot(this.pos);
+    const hunting = target && target.alive;
     const r = this.pos.length();
     const radial = _up.copy(this.pos).divideScalar(Math.max(r, 1e-3));
-    const n = this.orbitN;
-    const pro = _tmp.crossVectors(n, radial).normalize();
-    const vr = this.vel.dot(radial), vn = this.vel.dot(n), vt = this.vel.dot(pro);
-    this.thrust.set(0, 0, 0)
-      .addScaledVector(radial, -0.02 * (r - this.orbitR) - 0.4 * vr)
-      .addScaledVector(n, -0.02 * this.pos.dot(n) - 0.4 * vn)
-      .addScaledVector(pro, 0.4 * (this.orbitV - vt))
-      .clampLength(0, def.accel);
-    this.throttle = 0.35;
-    // nose along the orbit, belly to the hole's plane
-    _m.lookAt(this.pos, _tmp2.copy(this.pos).add(this.vel), n);
-    _tq.setFromRotationMatrix(_m);
-    this.quat.rotateTowards(_tq, def.turn * dt);
+    const desV = _des;
+    let dist = Infinity;
+    let near = false;
+    if (hunting) {
+      _toP.subVectors(target.pos, this.pos);
+      dist = _toP.length();
+      _toP.divideScalar(Math.max(dist, 1e-3));
+      const along = -this.pos.dot(_toP);                   // closest approach of the straight line to the hole
+      const miss2 = this.pos.lengthSq() - along * along;
+      const holeInWay = along > 0 && along < dist && miss2 < def.minRadius * def.minRadius * 1.6;
+      near = !holeInWay;
+      if (!holeInWay) {
+        // close in (no faster than `approach` relative to them) and hold at standoff range,
+        // with the gravity difference fed forward so it co-orbits instead of falling behind
+        const closing = THREE.MathUtils.clamp((dist - def.standoff) * 0.08, -20, def.approach);
+        desV.copy(target.vel).addScaledVector(_toP, closing);
+      } else {
+        // the hole is in the way: swing round it at orbital speed instead of cutting through
+        const route = _tmp.copy(_toP);
+        route.addScaledVector(radial, -route.dot(radial));     // drop the part pointing at the hole
+        // target more or less straight behind the hole: keep going round the way it's already moving
+        if (route.length() < 0.5) route.copy(this.vel).addScaledVector(radial, -this.vel.dot(radial));
+        if (route.lengthSq() < 1e-6) route.crossVectors(this.orbitN, radial);
+        route.normalize();
+        desV.copy(route).multiplyScalar(circularSpeed(Math.max(r, def.minRadius)) + def.approach);
+        // and hold a radius near the pilot's, instead of spiralling out
+        const rWant = THREE.MathUtils.clamp(target.pos.length(), def.minRadius * 1.1, 2400);
+        desV.addScaledVector(radial, THREE.MathUtils.clamp((rWant - r) * 0.15, -40, 40));
+      }
+    } else {
+      // nobody to chase: settle into a circular orbit where it is
+      const pro = _tmp.crossVectors(this.orbitN, radial).normalize();
+      desV.copy(pro).multiplyScalar(circularSpeed(Math.max(r, def.minRadius)));
+    }
+    // never sink toward the hole: inward speed is limited to what it can brake before the floor,
+    // and below the floor it climbs
+    const floor = def.minRadius;
+    const vMaxIn = Math.sqrt(2 * 4 * Math.max(r - floor, 0));
+    const vIn = desV.dot(radial);
+    if (vIn < -vMaxIn) desV.addScaledVector(radial, -vMaxIn - vIn);
+    if (r < floor) desV.addScaledVector(radial, (floor - r) * 0.3 + 25);
+    this.thrust.subVectors(desV, this.vel).multiplyScalar(0.5);
+    if (near && r > floor * 1.3 && target.pos.length() > floor) this.thrust.add(accelAt(target.pos, _gA).sub(accelAt(this.pos, _gB)));
+    else if (r < floor * 1.3) this.thrust.sub(accelAt(this.pos, _gB));   // near the floor: hold altitude against gravity
+    this.thrust.clampLength(0, def.accel);
+    // falling faster than it could stop before the floor (or already under it): all thrust into climbing
+    const vr = this.vel.dot(radial);
+    const brakeNeeded = vr < 0 ? (vr * vr) / (2 * Math.max(r - floor, 1)) : 0;
+    if (r < floor || brakeNeeded > 3) this.thrust.copy(radial).multiplyScalar(def.accel);
+    this.throttle = 0.25 + 0.75 * this.thrust.length() / def.accel;
+
+    // nose toward the pilot (the railgun fires along it)
+    const blocked = hunting && occludedByHole(this.pos, target.pos, 1.6);
+    let face = hunting ? _tmp2.copy(target.pos) : _tmp2.copy(this.pos).add(this.vel);
+    const facing = hunting && _fwd.set(0, 0, -1).applyQuaternion(this.quat).dot(_toP) > 0.94;
+    if (hunting) {
+      // charging normally steadies a lancer by cutting its thrust; the fortress keeps flying
+      const thrust = _thrustKeep.copy(this.thrust);
+      face = this.updateCharge(dt, target, game, facing && !blocked, dist, face) || face;
+      this.thrust.copy(thrust);
+    }
+    if (this.locked) this.quat.copy(this.lockQuat);
+    else {
+      _m.lookAt(this.pos, face, this.orbitN);
+      _tq.setFromRotationMatrix(_m);
+      this.quat.rotateTowards(_tq, def.turn * dt);
+    }
     this.updateTurretPositions();
     this.aimTurrets(dt, game, true);
 
-    // seeker launcher: sends a drone out whenever a pilot is in range and in sight
+    // seeker launcher: a pair whenever a pilot is in range and in sight
     this.launchTimer -= dt;
     if (this.launchTimer <= 0 && this.age > 4) {
-      const target = game.nearestPilot(this.pos);
-      const ok = target && target.alive && target.pos.distanceTo(this.pos) < def.launchRange && !occludedByHole(this.pos, target.pos, 1.6);
-      if (ok && game.bossLaunch(this, this.launcherIdx++ % this.built.launchers.length)) {
+      const ok = hunting && dist < def.launchRange && !blocked;
+      let launched = false;
+      if (ok) for (let i = 0; i < this.built.launchers.length; i++) launched = game.bossLaunch(this, i) || launched;
+      if (launched) {
         const [a, b] = def.launchCooldown;
         this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);
       } else this.launchTimer = ok ? 2 : 1;
@@ -329,7 +393,7 @@ export class Enemy {
       if (target && target.alive) {
         _toP.subVectors(target.pos, t.pos);
         const dist = _toP.length();
-        if (dist < td.range * 1.4 && _toP.dot(t.worldN) > 0.08 * dist && !occludedByHole(t.pos, target.pos, 1.6)) {
+        if (dist < td.range * 1.4 && _toP.dot(t.worldN) > -0.25 * dist && !occludedByHole(t.pos, target.pos, 1.6)) {   // each covers its side and the arc ahead
           const lead = (dist / td.boltSpeed) * t.lead;
           // long shots arc: allow for the difference between the gravity along the
           // bolt's path and the gravity on the target over the flight time
@@ -545,7 +609,7 @@ export class Enemy {
     this.targetQuat.fromArray(s.q);
     this.hp = s.hp;
     if (s.mhp) this.maxHp = s.mhp;
-    if (this.def.weapon === 'beam') {
+    if (this.def.weapon === 'beam' || this.def.beam) {
       this.charge = s.ch || 0;
       this.locked = this.charge * this.def.charge >= this.def.lockAt;
     }
@@ -593,7 +657,7 @@ export class Enemy {
       else if (this.type === 'aegis') { this.built.ringPivot.rotation.x += dt * 1.1; this.built.ringPivot.rotation.y += dt * 0.7; }
       else this.built.ringPivot.rotation.z += dt * (this.def.boss ? 0.25 : 0.8);
     }
-    if (this.type === 'lancer') {
+    if (this.built.telegraph) {
       const b = this.built;
       const c = this.charge;
       b.emitterGlow.material.opacity = c > 0 ? 0.3 + 0.7 * c : 0;
