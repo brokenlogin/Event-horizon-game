@@ -136,6 +136,9 @@ export class Particles {
   constructor(scene, max = 9000) {
     this.max = max;
     this.cursor = 0;
+    // index span that may hold live particles: update() only walks (and uploads) this range
+    this.lo = max;
+    this.hi = -1;
     this.pos = new Float32Array(max * 3);
     this.col = new Float32Array(max * 3);
     this.size = new Float32Array(max);
@@ -196,12 +199,19 @@ export class Particles {
     this.life[i] = this.maxLife[i] = life;
     this.flags[i] = gravity ? 1 : 0;
     this.drag[i] = drag;
+    if (i < this.lo) this.lo = i;
+    if (i > this.hi) this.hi = i;
   }
 
   update(dt) {
+    if (this.hi < this.lo) return;           // nothing alive: no work, no upload
     const P = this.pos, V = this.vel;
-    for (let i = 0; i < this.max; i++) {
+    const lo = this.lo, hi = this.hi;
+    let newLo = this.max, newHi = -1;
+    for (let i = lo; i <= hi; i++) {
       if (this.life[i] <= 0) { if (this.alpha[i] !== 0) { this.alpha[i] = 0; } continue; }
+      if (i < newLo) newLo = i;
+      newHi = i;
       this.life[i] -= dt;
       const o = i * 3;
       if (this.flags[i] & 1) {
@@ -226,13 +236,29 @@ export class Particles {
       this.col[o + 1] = this.baseCol[o + 1] + heat * 0.3;
       this.col[o + 2] = this.baseCol[o + 2] + heat * 0.15;
     }
+    // upload only the span we touched (it includes particles that just died, so their alpha reaches 0)
     const g = this.geometry.attributes;
-    g.position.needsUpdate = g.aColor.needsUpdate = g.aSize.needsUpdate = g.aAlpha.needsUpdate = true;
+    const n = hi - lo + 1;
+    for (const [attr, size] of [[g.position, 3], [g.aColor, 3], [g.aSize, 1], [g.aAlpha, 1]]) {
+      attr.clearUpdateRanges();
+      attr.addUpdateRange(lo * size, n * size);
+      attr.needsUpdate = true;
+    }
+    this.geometry.setDrawRange(0, newHi >= 0 ? hi + 1 : 0);
+    this.lo = newLo;
+    this.hi = newHi;
+    // a particle emitted after this pass widens the span again in emit()
   }
 
   clear() {
     this.life.fill(0);
     this.alpha.fill(0);
+    const g = this.geometry.attributes;
+    g.aAlpha.clearUpdateRanges();
+    g.aAlpha.needsUpdate = true;
+    this.geometry.setDrawRange(0, 0);
+    this.lo = this.max;
+    this.hi = -1;
   }
 }
 

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 
 import {
   RS, ISCO, DISK_IN, DISK_OUT, ARENA_RADIUS,
@@ -181,17 +181,51 @@ const FinalShader = {
       col += (h(vUv * 917.0 + fract(uTime) * 31.0) - 0.5) * 0.008;
       col *= 1.0 - uFade;
       gl_FragColor = vec4(col, 1.0);
+      // tone mapping + sRGB output happen here, saving a separate full-screen pass
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
     }`,
 };
 
-const composerRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+/**
+ * Draws the scene with 4× MSAA into its own target, then copies the resolved
+ * image into the composer's plain buffer. Only the scene needs anti-aliasing:
+ * keeping the bloom and final passes off multisampled targets saves a resolve
+ * (and a lot of memory bandwidth) on every one of them.
+ */
+class MSAARenderPass extends Pass {
+  constructor(scene, camera) {
+    super();
+    this.scene = scene;
+    this.camera = camera;
+    this.needsSwap = false;
+    this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.copy = new FullScreenQuad(new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.clone(CopyShader.uniforms),
+      vertexShader: CopyShader.vertexShader,
+      fragmentShader: CopyShader.fragmentShader,
+      depthTest: false, depthWrite: false,
+    }));
+    this.copy.material.uniforms.tDiffuse.value = this.target.texture;
+  }
+
+  setSize(width, height) { this.target.setSize(width, height); }
+
+  render(renderer, writeBuffer, readBuffer) {
+    renderer.setRenderTarget(this.target);
+    renderer.render(this.scene, this.camera);   // (autoClear clears the target)
+    renderer.setRenderTarget(readBuffer);
+    this.copy.render(renderer);
+  }
+}
+
+const composerRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
 const composer = new EffectComposer(renderer, composerRT);
-composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new MSAARenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.45, 1.0);
 composer.addPass(bloom);
-const finalPass = new ShaderPass(FinalShader);
+const finalPass = new ShaderPass(FinalShader);   // also tone-maps: it's the last pass, drawn to the screen
 composer.addPass(finalPass);
-composer.addPass(new OutputPass());
 
 function applyQuality() {
   const ratio = Math.min(window.devicePixelRatio || 1, QUALITY[qualityKey].ratio);

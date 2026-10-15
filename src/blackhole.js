@@ -90,13 +90,26 @@ uniform float uDiskIn;
 uniform float uDiskOut;
 uniform float uPx;
 uniform float uDiskGain;
+uniform sampler3D uNoise;
+uniform vec3 uNoiseMin;
+uniform vec3 uNoiseInvSize;
 varying vec2 vNdc;
 
 ${NOISE_GLSL}
 
+// Same value noise as vnoise(), but the lattice hashes come from a baked 3D
+// texture: sampling between two texels with the smoothstep weight lets the
+// texture filter do the interpolation. One fetch instead of eight hashes.
+float vnoiseT(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return texture(uNoise, (i - uNoiseMin + f + 0.5) * uNoiseInvSize).r;
+}
+
 float fbm4(vec3 p) {
   float s = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.07 + vec3(3.1, 1.7, 5.3); a *= 0.5; }
+  for (int i = 0; i < 4; i++) { s += a * vnoiseT(p); p = p * 2.07 + vec3(3.1, 1.7, 5.3); a *= 0.5; }
   return s;
 }
 
@@ -203,10 +216,11 @@ void main() {
     vec3 hv = cross(p, v);
     float h2 = dot(hv, hv);
     float k = -1.5 * uRs * h2;
+    // r and r⁵ carry over from the previous step's endpoint
+    float r = length(p);
+    float r5 = r * r * r * r * r;
     for (int i = 0; i < 260; i++) {
-      float r = length(p);
       float stp = clamp((r - uRs) * 0.11 + r * 0.018, uRs * 0.006, uRs * 1.2);
-      float r5 = r * r * r * r * r;
       vec3 vh = v + (k / r5) * p * (0.5 * stp);
       vec3 np = p + vh * stp;
       float nr = length(np);
@@ -222,6 +236,8 @@ void main() {
         if (!hasDepth && alpha > 0.55) { hasDepth = true; depthP = hp; }
       }
       p = np;
+      r = nr;
+      r5 = nr5;
       if (nr < uRs) { captured = true; break; }
       if (nr > RINF && dot(p, v) > 0.0) break;
       if (alpha > 0.995) break;
@@ -242,6 +258,50 @@ void main() {
   gl_FragDepth = depth;
 }
 `;
+
+// ---------------------------------------------------------------------------
+// Disk noise lattice. fbm4() samples value noise at
+//   p0 = (r·1.7/Rs, 2.6·cos a, 2.6·sin a),  p(k+1) = 2.07·p(k) + (3.1, 1.7, 5.3)
+// for four octaves, so the lattice points it can touch lie in a fixed box. We
+// store hash13() at every one of them (computed in 32-bit float, like the GPU).
+// ---------------------------------------------------------------------------
+const f32 = Math.fround;
+const fract32 = (x) => f32(x - Math.floor(x));
+function hash13(x, y, z) {
+  let a = fract32(f32(x * f32(0.1031))), b = fract32(f32(y * f32(0.1031))), c = fract32(f32(z * f32(0.1031)));
+  const d = f32(f32(f32(a * f32(c + f32(31.32))) + f32(b * f32(b + f32(31.32)))) + f32(c * f32(a + f32(31.32))));
+  a = f32(a + d); b = f32(b + d); c = f32(c + d);
+  return fract32(f32(f32(a + b) * c));
+}
+
+function bakeDiskNoise() {
+  let lo = [DISK_IN * 0.9 * 1.7 / RS, -2.6, -2.6];
+  let hi = [DISK_OUT * 1.7 / RS, 2.6, 2.6];
+  const min = [...lo], max = [...hi];
+  const off = [3.1, 1.7, 5.3];
+  for (let k = 1; k < 4; k++) {
+    lo = lo.map((v, i) => v * 2.07 + off[i]);
+    hi = hi.map((v, i) => v * 2.07 + off[i]);
+    for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i], lo[i]); max[i] = Math.max(max[i], hi[i]); }
+  }
+  const o = min.map((v) => Math.floor(v) - 1);
+  const size = max.map((v, i) => Math.ceil(v) + 2 - o[i]);
+  const [W, H, D] = size;
+  const data = new Uint16Array(W * H * D);
+  for (let z = 0; z < D; z++) {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) data[x + W * (y + H * z)] = THREE.DataUtils.toHalfFloat(hash13(x + o[0], y + o[1], z + o[2]));
+    }
+  }
+  const tex = new THREE.Data3DTexture(data, W, H, D);
+  tex.format = THREE.RedFormat;
+  tex.type = THREE.HalfFloatType;
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = tex.wrapR = THREE.ClampToEdgeWrapping;
+  tex.unpackAlignment = 1;
+  tex.needsUpdate = true;
+  return { tex, min: new THREE.Vector3(...o), invSize: new THREE.Vector3(1 / W, 1 / H, 1 / D) };
+}
 
 export function createBlackHole(renderer) {
   // --- bake the nebula into a cubemap once ---
@@ -274,7 +334,14 @@ export function createBlackHole(renderer) {
     uDiskOut: { value: DISK_OUT },
     uPx: { value: 0.001 },
     uDiskGain: { value: 1.0 },
+    uNoise: { value: null },
+    uNoiseMin: { value: new THREE.Vector3() },
+    uNoiseInvSize: { value: new THREE.Vector3() },
   };
+  const noise = bakeDiskNoise();
+  uniforms.uNoise.value = noise.tex;
+  uniforms.uNoiseMin.value.copy(noise.min);
+  uniforms.uNoiseInvSize.value.copy(noise.invSize);
 
   const material = new THREE.ShaderMaterial({
     vertexShader: BH_VERT,

@@ -2,6 +2,17 @@ import * as THREE from 'three';
 import { occludedByHole } from './physics.js';
 
 const $ = (id) => document.getElementById(id);
+
+// Markers move every frame. Positioning them with transforms (not left/top)
+// keeps the browser from re-running layout each frame, and only writing a
+// style when its value changed avoids needless style recalculation.
+function css(el, prop, value) {
+  if (el.style[prop] !== value) el.style[prop] = value;   // reading inline style is cheap (no layout)
+}
+/** Centre an element on a screen point. */
+const centredAt = (x, y) => `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%)`;
+/** Place an 18×18 edge arrow at a screen point, pointing along `ang`. */
+const arrowAt = (x, y, ang) => `translate3d(${(x - 9).toFixed(1)}px, ${(y - 9).toFixed(1)}px, 0) rotate(${(-ang + Math.PI / 2).toFixed(3)}rad)`;
 const _v = new THREE.Vector3();
 const _cam = new THREE.Vector3();
 
@@ -49,10 +60,10 @@ export class HUD {
 
   place(el, p, camera, keepIfBehind = false) {
     const s = this.project(p, camera, this._tmpP || (this._tmpP = {}));
-    if (s.behind && !keepIfBehind) { el.style.display = 'none'; return false; }
-    el.style.display = 'block';
-    el.style.transform = `translate(${s.x}px, ${s.y}px)`;
-    el.style.left = '0'; el.style.top = '0';
+    if (s.behind && !keepIfBehind) { css(el, 'display', 'none'); return false; }
+    css(el, 'display', 'block');
+    css(el, 'transform', `translate3d(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px, 0)`);
+    css(el, 'left', '0'); css(el, 'top', '0');
     return true;
   }
 
@@ -91,14 +102,14 @@ export class HUD {
     st.textContent = lock.state === 'locked' ? (sal ? 'SALVAGE LOCK' : 'LOCKED') : lock.state === 'locking' ? `LOCK ${Math.round(lock.progress * 100)}%` : '';
     st.className = `lock-status${lock.state === 'locked' ? ' locked' : ''}`;
     const ring = this.el.lockring;
-    if (lock.state === 'idle' || !lock.target) { ring.style.display = 'none'; return; }
+    if (lock.state === 'idle' || !lock.target) { css(ring, 'display', 'none'); return; }
     const s = this.project(lock.target.pos, camera, this._lp || (this._lp = {}));
-    if (!s.onScreen) { ring.style.display = 'none'; return; }
+    if (!s.onScreen) { css(ring, 'display', 'none'); return; }
     const size = lock.state === 'locked' ? 54 : 150 - 90 * lock.progress;
-    ring.style.display = 'block';
-    ring.style.left = `${s.x}px`;
-    ring.style.top = `${s.y}px`;
-    ring.style.width = ring.style.height = `${size}px`;
+    css(ring, 'display', 'block');
+    css(ring, 'transform', centredAt(s.x, s.y));
+    css(ring, 'width', `${size.toFixed(0)}px`);
+    css(ring, 'height', `${size.toFixed(0)}px`);
     ring.className = `${lock.state === 'locked' ? 'locked' : ''}${sal ? ' salvage' : ''}`;
     ring.firstElementChild.style.transform = lock.state === 'locked' ? '' : `rotate(${lock.progress * 270}deg)`;
     this.el.lockLabel.textContent = lock.state === 'locked' ? (sal ? 'SALVAGE · Q TO LAUNCH DRONE' : 'LOCK · Q TO FIRE') : (sal ? 'SALVAGE LOCK' : 'LOCKING');
@@ -177,7 +188,7 @@ export class HUD {
         if (!m) {
           m = document.createElement('div');
           m.className = 'tmark';
-          m.innerHTML = '<div class="box"></div><div class="hp"><i></i></div><div class="dist"></div>';
+          m.innerHTML = '<div class="tm-in"><div class="box"></div><div class="hp"><i></i></div><div class="dist"></div></div>';
           this.el.markers.appendChild(m);
           m._hp = m.querySelector('.hp i');
           m._dist = m.querySelector('.dist');
@@ -188,14 +199,16 @@ export class HUD {
           ? THREE.MathUtils.clamp(26000 / Math.max(dist, 1), 60, 420)
           : e.def.inert ? THREE.MathUtils.clamp(1400 / Math.max(dist, 1), 14, 44)
             : THREE.MathUtils.clamp(2400 / Math.max(dist, 1), 22, 90);
-        m.style.display = 'block';
-        m.style.width = m.style.height = `${size}px`;
-        m.style.left = `${s.x}px`; m.style.top = `${s.y}px`;
+        css(m, 'display', 'block');
+        css(m, 'width', `${size.toFixed(0)}px`);
+        css(m, 'height', `${size.toFixed(0)}px`);
+        css(m, 'transform', centredAt(s.x, s.y));
         const hidden = occludedByHole(camera.position, e.pos, 2.4);
         const cls = `tmark ${e.type}${e === lockedEnemy ? ' locked' : ''}${hidden ? ' occluded' : ''}${e.shielded ? ' shielded' : ''}`;
         if (m.className !== cls) m.className = cls;
-        m._hp.style.width = `${(e.hp / (e.maxHp || e.def.hp)) * 100}%`;
-        m._dist.textContent = hidden ? `${dist.toFixed(0)}m · BEHIND HOLE` : e.shielded ? `${dist.toFixed(0)}m · SHIELDED` : `${dist.toFixed(0)}m`;
+        css(m._hp, 'width', `${((e.hp / (e.maxHp || e.def.hp)) * 100).toFixed(1)}%`);
+        const label = hidden ? `${dist.toFixed(0)}m · BEHIND HOLE` : e.shielded ? `${dist.toFixed(0)}m · SHIELDED` : `${dist.toFixed(0)}m`;
+        if (m._dist.textContent !== label) m._dist.textContent = label;
       } else {
         let a = this.arrowPool[ai];
         if (!a) {
@@ -210,15 +223,15 @@ export class HUD {
         const rx = innerWidth * 0.5 - 50, ry = innerHeight * 0.5 - 50;
         const px = innerWidth * 0.5 + Math.cos(ang) * rx;
         const py = innerHeight * 0.5 - Math.sin(ang) * ry;
-        a.className = `edge-arrow ${e.type}`;
-        a.style.display = 'block';
-        a.style.left = `${px - 9}px`; a.style.top = `${py - 9}px`;
-        a.style.transform = `rotate(${-ang + Math.PI / 2}rad)`;
-        a.style.opacity = THREE.MathUtils.clamp(1.4 - dist / 900, 0.35, 1);
+        const cls = `edge-arrow ${e.type}`;
+        if (a.className !== cls) a.className = cls;
+        css(a, 'display', 'block');
+        css(a, 'transform', arrowAt(px, py, ang));
+        css(a, 'opacity', THREE.MathUtils.clamp(1.4 - dist / 900, 0.35, 1).toFixed(2));
       }
     }
-    for (let i = mi; i < this.markerPool.length; i++) this.markerPool[i].style.display = 'none';
-    for (let i = ai; i < this.arrowPool.length; i++) this.arrowPool[i].style.display = 'none';
+    for (let i = mi; i < this.markerPool.length; i++) css(this.markerPool[i], 'display', 'none');
+    for (let i = ai; i < this.arrowPool.length; i++) css(this.arrowPool[i], 'display', 'none');
   }
 
   /** Dreadnought health bar (top centre). info: { hp, maxHp, turrets, total } or null. */
@@ -252,12 +265,12 @@ export class HUD {
       n++;
       const cls = `threat-mark ${it.kind}`;
       if (m.className !== cls) m.className = cls;
-      m.style.display = 'block';
-      m.style.left = `${s.x}px`; m.style.top = `${s.y}px`;
+      css(m, 'display', 'block');
+      css(m, 'transform', centredAt(s.x, s.y));
       const label = it.kind === 'turret' ? '' : `${Math.round(it.pos.distanceTo(playerPos))}m`;
       if (m._label.textContent !== label) m._label.textContent = label;
     }
-    for (let i = n; i < pool.length; i++) pool[i].style.display = 'none';
+    for (let i = n; i < pool.length; i++) css(pool[i], 'display', 'none');
   }
 
   setAutopilot(s) {
@@ -301,21 +314,18 @@ export class HUD {
       this.project(r.renderPos, camera, s);
       const dist = r.renderPos.distanceTo(playerPos);
       if (s.onScreen) {
-        m.mark.style.display = 'block';
-        m.arrow.style.display = 'none';
-        m.mark.style.left = `${s.x}px`;
-        m.mark.style.top = `${s.y}px`;
+        css(m.mark, 'display', 'block');
+        css(m.arrow, 'display', 'none');
+        css(m.mark, 'transform', centredAt(s.x, s.y));
         const txt = `${r.name}${r.docked ? ' · DOCKED' : ''} · ${dist.toFixed(0)} m`;
         if (m.label.textContent !== txt) m.label.textContent = txt;
       } else {
-        m.mark.style.display = 'none';
+        css(m.mark, 'display', 'none');
         let x = s.ndcX, y = s.ndcY;
         if (s.behind) { x = -x; y = -y; }
         const ang = Math.atan2(y, x);
-        m.arrow.style.display = 'block';
-        m.arrow.style.left = `${innerWidth * 0.5 + Math.cos(ang) * (innerWidth * 0.5 - 50) - 9}px`;
-        m.arrow.style.top = `${innerHeight * 0.5 - Math.sin(ang) * (innerHeight * 0.5 - 50) - 9}px`;
-        m.arrow.style.transform = `rotate(${-ang + Math.PI / 2}rad)`;
+        css(m.arrow, 'display', 'block');
+        css(m.arrow, 'transform', arrowAt(innerWidth * 0.5 + Math.cos(ang) * (innerWidth * 0.5 - 50), innerHeight * 0.5 - Math.sin(ang) * (innerHeight * 0.5 - 50), ang));
       }
     }
     for (let k = i; k < this._allyPool.length; k++) this._allyPool[k].mark.style.display = this._allyPool[k].arrow.style.display = 'none';
@@ -342,30 +352,28 @@ export class HUD {
   updateStation(station, player, camera, opts) {
     const el = this.el;
     if (!opts.show) {
-      for (const k of ['stationMarker', 'stationArrow', 'relPro', 'relRetro', 'dockHint']) el[k].style.display = 'none';
+      for (const k of ['stationMarker', 'stationArrow', 'relPro', 'relRetro', 'dockHint']) css(el[k], 'display', 'none');
       return;
     }
     const s = this.project(station.pos, camera, this._sp || (this._sp = {}));
     const dist = station.pos.distanceTo(player.pos);
     const rel = station.relativeSpeed(player);
     if (s.onScreen) {
-      el.stationMarker.style.display = 'block';
-      el.stationMarker.style.left = `${s.x}px`;
-      el.stationMarker.style.top = `${s.y}px`;
+      css(el.stationMarker, 'display', 'block');
+      css(el.stationMarker, 'transform', centredAt(s.x, s.y));
       el.stationMarker.classList.toggle('ready', opts.canDock);
-      el.stationLabel.innerHTML = `KEPLER STATION<br>${dist.toFixed(0)} m · Δv ${rel.toFixed(0)} m/s`;
-      el.stationArrow.style.display = 'none';
+      const html = `KEPLER STATION<br>${dist.toFixed(0)} m · Δv ${rel.toFixed(0)} m/s`;
+      if (el.stationLabel._html !== html) { el.stationLabel._html = html; el.stationLabel.innerHTML = html; }
+      css(el.stationArrow, 'display', 'none');
     } else {
-      el.stationMarker.style.display = 'none';
+      css(el.stationMarker, 'display', 'none');
       let x = s.ndcX, y = s.ndcY;
       if (s.behind) { x = -x; y = -y; }
       const ang = Math.atan2(y, x);
       const px = innerWidth * 0.5 + Math.cos(ang) * (innerWidth * 0.5 - 50);
       const py = innerHeight * 0.5 - Math.sin(ang) * (innerHeight * 0.5 - 50);
-      el.stationArrow.style.display = 'block';
-      el.stationArrow.style.left = `${px - 9}px`;
-      el.stationArrow.style.top = `${py - 9}px`;
-      el.stationArrow.style.transform = `rotate(${-ang + Math.PI / 2}rad)`;
+      css(el.stationArrow, 'display', 'block');
+      css(el.stationArrow, 'transform', arrowAt(px, py, ang));
     }
     // relative velocity markers within rendezvous range
     if (dist < 2500 && rel > 1) {
@@ -391,10 +399,9 @@ export class HUD {
   }
 
   _showAt(e, s) {
-    if (!s.onScreen) { e.style.display = 'none'; return; }
-    e.style.display = 'block';
-    e.style.left = `${s.x}px`;
-    e.style.top = `${s.y}px`;
+    if (!s.onScreen) { css(e, 'display', 'none'); return; }
+    css(e, 'display', 'block');
+    css(e, 'transform', `translate3d(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px, 0)`);   // (centred by its CSS margins)
   }
 
   updateWrecks(wrecks, camera, playerPos, collectRange) {
@@ -415,14 +422,14 @@ export class HUD {
         this._wpool.push(m);
       }
       i++;
-      m.style.display = 'block';
-      m.style.left = `${s.x}px`;
-      m.style.top = `${s.y}px`;
-      m.className = `wreck-mark${d < collectRange * 2 ? ' near' : ''}${w.life < 15 ? ' expiring' : ''}`;
+      css(m, 'display', 'block');
+      css(m, 'transform', centredAt(s.x, s.y));
+      const cls = `wreck-mark${d < collectRange * 2 ? ' near' : ''}${w.life < 15 ? ' expiring' : ''}`;
+      if (m.className !== cls) m.className = cls;
       const html = `<i></i>SCRAP ${w.value} · ${d.toFixed(0)}m`;
       if (m._html !== html) { m.innerHTML = html; m._html = html; }
     }
-    for (let k = i; k < this._wpool.length; k++) this._wpool[k].style.display = 'none';
+    for (let k = i; k < this._wpool.length; k++) css(this._wpool[k], 'display', 'none');
   }
 
   hideMarkers() {
