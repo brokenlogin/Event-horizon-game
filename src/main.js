@@ -679,7 +679,7 @@ function enemyFire(e) {
   }
   enemyFireFx(muzzle, e.vel, e.type === 'warden');
   // everyone simulates the same bolts; each pilot judges hits on their own ship
-  if (game.mp) net.sendEvent({ k: 'ef', t: net.netTime(), p: r2(muzzle), ev: r2(e.vel), v: sent, dmg: def.dmg, w: e.type === 'warden' ? 1 : 0 });
+  if (game.mp) net.sendEvent({ k: 'ef', t: worldNow(), p: r2(muzzle), ev: r2(e.vel), v: sent, dmg: def.dmg, w: e.type === 'warden' ? 1 : 0 });
 }
 
 /** One shot from a dreadnought turret (its twin barrels alternate). */
@@ -696,7 +696,7 @@ function turretFire(e, t) {
   _q1Vec.copy(e.vel).addScaledVector(fwd, td.boltSpeed);
   enemyBolts.spawn(muzzle, _q1Vec, 4.2, td.dmg);
   enemyFireFx(muzzle, e.vel, false);
-  if (game.mp) net.sendEvent({ k: 'ef', t: net.netTime(), p: r2(muzzle), ev: r2(e.vel), v: r2(_q1Vec), dmg: td.dmg, w: 0 });
+  if (game.mp) net.sendEvent({ k: 'ef', t: worldNow(), p: r2(muzzle), ev: r2(e.vel), v: r2(_q1Vec), dmg: td.dmg, w: 0 });
 }
 
 /**
@@ -1099,46 +1099,112 @@ wrecks.onCollect = (w, by) => {
 // Time warp: between waves, with nothing hostile around, , and . step game
 // time between 1× and 10× (handy while the docking assist flies you in). It
 // drops back to 1× by itself 10 s before the next wave or if anything hits you.
-// Solo only: in multiplayer the host's clock drives everyone's world.
+//
+// Multiplayer: warp is shared. Anyone can ask (unless the host turned on
+// host-only warp); the host checks it's safe and schedules the change a moment
+// ahead, so every pilot switches at the same instant. Everything timed by the
+// shared clock (the station's orbit, snapshots, shots) uses worldNow(), the
+// host's clock sped up by the warp.
 // ---------------------------------------------------------------------------
 const WARP_LEVELS = [1, 2, 3, 5, 10];
 const WARP_STOP = 10;        // seconds before a wave when warp ends
+const WARP_LEAD = 0.2;       // s: multiplayer warp changes are scheduled this far ahead
 
-/**
- * Why time warp isn't allowed right now, or '' if it is. `starting` adds the
- * checks that only stop you turning it on (recent damage); once warping,
- * damagePlayer() handles hits.
- */
-function warpBlocker(starting = true) {
-  if (game.mp) return 'SOLO ONLY';
-  if (state !== 'playing' || !player.alive) return 'UNAVAILABLE';
+// shared world clock: W(t) = W0 + rate · (t − T0), with t the host's clock
+const warpClock = { T0: 0, W0: 0, rate: 1, pending: null };
+function resetWarpClock() {
+  warpClock.T0 = 0; warpClock.W0 = 0; warpClock.rate = 1; warpClock.pending = null;
+  game.warp = 1;
+}
+function worldAt(t) { return warpClock.W0 + warpClock.rate * (t - warpClock.T0); }
+function worldNow() { return game.mp ? worldAt(net.netTime()) : net.netTime(); }
+
+/** Why the world isn't safe for time warp ('' if it is). In multiplayer the host judges this. */
+function worldWarpBlocker() {
   if (game.waveActive || hostileCount() > 0 || game.spawnQueue.length) return 'HOSTILES IN THE AREA';
   if (game.waveTimer <= WARP_STOP) return 'NEXT WAVE TOO CLOSE';
+  return '';
+}
+/** Why this pilot can't warp ('' if they can). `starting` adds recent damage. */
+function selfWarpBlocker(starting = true) {
+  if (state !== 'playing' || !player.alive) return game.mp ? '' : 'UNAVAILABLE';
   if (pred.impact && !player.docked && !player.docking) return 'ON COURSE INTO THE HOLE';
   if (starting && game.underAttack > 0) return 'TAKING DAMAGE';
   return '';
 }
+function warpBlocker(starting = true) { return worldWarpBlocker() || selfWarpBlocker(starting); }
+
+/** The warp level the game is at, or about to switch to. */
+function warpTarget() { return warpClock.pending ? warpClock.pending.w : game.warp; }
 
 function changeWarp(dir) {
-  const i = WARP_LEVELS.indexOf(game.warp);
+  const i = WARP_LEVELS.indexOf(warpTarget());
   const next = WARP_LEVELS[THREE.MathUtils.clamp((i < 0 ? 0 : i) + dir, 0, WARP_LEVELS.length - 1)];
-  if (next === game.warp) return;
+  if (next === warpTarget()) return;
+  if (game.mp && mp.hostWarp && !net.isHost) {
+    hud.notice('TIME WARP · ONLY THE HOST CAN CONTROL IT', 'dim');
+    audio.beep(240, 0.1, 0.05, 'square');
+    return;
+  }
   if (next > 1) {
-    const why = warpBlocker();
+    const why = game.mp ? selfWarpBlocker() || (net.isHost ? worldWarpBlocker() : '') : warpBlocker();
     if (why) { hud.notice(`TIME WARP · ${why}`, 'dim'); audio.beep(240, 0.1, 0.05, 'square'); return; }
   }
-  game.warp = next;
-  hud.notice(next > 1 ? `TIME WARP ${next}×` : 'TIME WARP OFF', next > 1 ? 'green' : 'dim');
-  audio.beep(500 + next * 90, 0.06, 0.05, 'sine');
+  if (!game.mp) {
+    game.warp = next;
+    warpFeedback(next, net.myId, '');
+  } else if (net.isHost) hostSetWarp(next, net.myId, '');
+  else net.sendEvent({ k: 'warpReq', w: next });
+}
+
+function warpFeedback(w, by, why) {
+  const who = game.mp && by !== net.myId ? ` · ${pilotName(by)}` : '';
+  if (w > 1) hud.notice(`TIME WARP ${w}×${who}`, 'green');
+  else hud.notice(why ? `TIME WARP OFF · ${why}${who}` : `TIME WARP OFF${who}`, why ? 'orange' : 'dim');
+  audio.beep(why ? 420 : 500 + w * 90, why ? 0.12 : 0.06, 0.05, why ? 'square' : 'sine');
+}
+
+/** Host: validate and schedule a shared warp change for everyone. */
+function hostSetWarp(w, by, why) {
+  if (w > 1) {
+    const block = worldWarpBlocker();
+    if (block) { if (by !== net.myId) net.sendEvent({ k: 'warpDenied', why: block }, by); return; }
+  }
+  if (w === warpTarget()) return;
+  const at = net.netTime() + WARP_LEAD;
+  const W0 = worldAt(at);
+  warpClock.pending = { w, at, W0, by, why };
+  net.sendEvent({ k: 'warp', w, at, W0, by, why });
+}
+
+/** Every frame: apply a scheduled multiplayer warp change once its moment arrives. */
+function updateWarpClock() {
+  const p = warpClock.pending;
+  if (!p || net.netTime() < p.at) return;
+  warpClock.T0 = p.at; warpClock.W0 = p.W0; warpClock.rate = p.w;
+  warpClock.pending = null;
+  game.warp = p.w;
+  mp.warpDropAsked = false;
+  warpFeedback(p.w, p.by, p.why);
+}
+
+/** Drop back to 1× (solo), or ask for it (multiplayer). */
+function endWarp(why) {
+  if (!game.mp) { if (game.warp > 1) { game.warp = 1; warpFeedback(1, net.myId, why); } return; }
+  if (warpTarget() <= 1) return;
+  if (net.isHost) hostSetWarp(1, net.myId, why);
+  else if (!mp.warpDropAsked) { mp.warpDropAsked = true; net.sendEvent({ k: 'warpReq', w: 1, why }); }
 }
 
 /** Every frame while warping: fall back to 1× as soon as it stops being safe. */
 function checkWarp() {
-  const why = warpBlocker(false);
-  if (!why) return;
-  game.warp = 1;
-  hud.notice(why === 'NEXT WAVE TOO CLOSE' ? 'TIME WARP OFF · WAVE INBOUND' : `TIME WARP OFF · ${why}`, 'orange');
-  audio.beep(420, 0.12, 0.06, 'square');
+  if (game.mp && !net.isHost) {
+    const why = selfWarpBlocker(false);
+    if (why) endWarp(why);
+    return;
+  }
+  const why = game.mp ? worldWarpBlocker() || selfWarpBlocker(false) : warpBlocker(false);
+  if (why) endWarp(why === 'NEXT WAVE TOO CLOSE' ? 'WAVE INBOUND' : why);
 }
 
 function toggleDockAssist() {
@@ -1318,10 +1384,7 @@ function damagePlayer(amount, opts = {}) {
   }
   player.hull -= rem;
   // hits, or anything that gets through to the hull, end time warp
-  if (game.warp > 1 && (!opts.silent || rem > 0)) {
-    game.warp = 1;
-    hud.notice('TIME WARP OFF · TAKING DAMAGE', 'orange');
-  }
+  if (warpTarget() > 1 && (!opts.silent || rem > 0)) endWarp('TAKING DAMAGE');
   if (!opts.silent) {
     game.trauma = Math.min(1, game.trauma + amount * 0.025);
     game.damageFlash = Math.min(1, game.damageFlash + (rem > 0 ? 0.6 : 0.3));
@@ -1367,7 +1430,7 @@ function firePlayer(lockInfo) {
   }
   _v3.copy(player.vel).addScaledVector(dir, BOLT_SPEED);
   playerBolts.spawn(muzzle, _v3, BOLT_LIFE, cannonDamage());
-  if (game.mp) net.sendEvent({ k: 'f', t: net.netTime(), p: r2(muzzle), v: r2(_v3) });
+  if (game.mp) net.sendEvent({ k: 'f', t: worldNow(), p: r2(muzzle), v: r2(_v3) });
   particles.emit(muzzle.x, muzzle.y, muzzle.z, player.vel.x + dir.x * 20, player.vel.y + dir.y * 20, player.vel.z + dir.z * 20, 0.6, 2.2, 3, 1.4, 0.3, 0.07, false);
   player.heat += HEAT_PER_SHOT;
   if (player.heat >= 1) { player.heat = 1; player.overheated = true; audio.beep(220, 0.25, 0.08, 'sawtooth'); }
@@ -1437,7 +1500,7 @@ function startGame(opts = {}) {
   resetEnemyIds();
   game.bumpCd = 0;
   game.clearHold = 0;
-  game.warp = 1;
+  resetWarpClock();
   game.seenTypes = new Set();
   mp.deadIds.clear();
   station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // slow, thruster-held orbit
@@ -2109,7 +2172,8 @@ function tick(rawDt, render) {
   if (state === 'menu' && net.role) renderRoom();
 
   if (state === 'playing' || state === 'dead' || (state === 'paused' && game.mp)) {
-    if (game.warp > 1) checkWarp();
+    if (game.mp) updateWarpClock();
+    if (warpTarget() > 1) checkWarp();
     const dt = rawDt * game.timeScale * game.warp;
     game.time += dt;
 
@@ -2258,7 +2322,8 @@ function tick(rawDt, render) {
       hud.setWarnings(warnings);
       hud.setBars(player.shield / SHIELD_MAX, player.hull / player.maxHull, player.heat, player.overheated);
       hud.setScrap(game.scrap);
-      hud.setWaveTimer(game.waveActive ? 0 : game.waveTimer, player.docked, game.warp, !warpBlocker());
+      hud.setWaveTimer(game.waveActive ? 0 : game.waveTimer, player.docked, game.warp,
+        !warpBlocker() && !(game.mp && mp.hostWarp && !net.isHost), game.mp);
       hud.updateStation(station, player, camera, {
         show: !player.docked && !player.docking, canDock: station.canDock(player),
         dockRange: DOCK_RANGE, dockSpeed: DOCK_MAX_REL_SPEED, needsClearance: player.needsClearance, assist: dockAssist.active,
@@ -2474,6 +2539,8 @@ const mp = {
   reqId: 0, pending: new Map(), deadIds: new Set(),
   spectating: false, spectateId: -1, wipeTimer: 0, reviveBanner: '',
   difficulty: 'normal',    // the host's pick; every pilot flies with it
+  hostWarp: false,         // host's setting: only the host controls time warp
+  warpDropAsked: false,
 };
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -2481,7 +2548,7 @@ function r2(v) { return [round2(v.x), round2(v.y), round2(v.z)]; }
 
 /** The station's orbit is analytic, so every pilot derives its phase from the shared clock. */
 function syncStation() {
-  station.phase = STATION_PHASE0 + station.omega * (net.netTime() - mp.epoch);
+  station.phase = STATION_PHASE0 + station.omega * (worldNow() - mp.epoch);
   station.stateAt(0, station.pos, station.vel);
 }
 
@@ -2518,7 +2585,7 @@ function sendSnapshot(dt) {
   mp.sendTimer = SNAPSHOT_INTERVAL;
   const q = player.quat;
   net.sendState({
-    k: 's', t: net.netTime(),
+    k: 's', t: worldNow(),
     p: r2(player.pos), v: r2(player.vel), a: r2(player.thrustAcc),
     q: [q.x, q.y, q.z, q.w].map((x) => Math.round(x * 1e4) / 1e4),
     th: round2(player.throttle), al: player.alive ? 1 : 0, dk: (player.docked || player.docking) ? 1 : 0, dc: myClamp(),
@@ -2543,7 +2610,7 @@ function sendWorld(dt) {
       else if (e.def.weapon === 'beam') row.push(Math.round(e.charge * 1000) / 1000);   // lancer: how far into its charge
       list.push(row);
     }
-    net.sendState({ k: 'es', t: net.netTime(), e: list });
+    net.sendState({ k: 'es', t: worldNow(), e: list });
   }
   mp.waveSyncTimer -= dt;
   if (mp.waveSyncTimer <= 0) {
@@ -2555,7 +2622,7 @@ function sendWorld(dt) {
 /** Guest: create / update proxies from the host's enemy snapshot. */
 const _snap = { t: 0, p: [0, 0, 0], v: [0, 0, 0], a: [0, 0, 0], q: [0, 0, 0, 1], hp: 0, th: 0 };
 function applyEnemySnapshot(msg) {
-  const now = net.netTime();
+  const now = worldNow();
   for (const row of msg.e) {
     const id = row[0];
     if (mp.deadIds.has(id)) continue;
@@ -2596,7 +2663,7 @@ function applyEnemySnapshot(msg) {
 
 /** Guest: drop proxies the host has stopped mentioning (missed kill message etc.). */
 function pruneProxies() {
-  const now = net.netTime();
+  const now = worldNow();
   for (const e of game.enemies) if (e.alive && e.proxy && now - e.lastSeen > 2.5) e.destroy();
 }
 
@@ -2777,7 +2844,7 @@ function hostStart() {
   net.lockRoom();
   mp.epoch = net.netTime();
   mp.difficulty = difficulty;
-  net.sendEvent({ k: 'start', epoch: mp.epoch, df: mp.difficulty });
+  net.sendEvent({ k: 'start', epoch: mp.epoch, df: mp.difficulty, hw: mp.hostWarp ? 1 : 0 });
   startMultiplayer();
 }
 
@@ -2785,12 +2852,13 @@ function broadcastRoster() {
   if (!net.isHost) return;
   mp.players.set(0, { name: callsign, ready: true });
   mp.difficulty = difficulty;
-  net.sendEvent({ k: 'roster', df: difficulty, players: [...mp.players.entries()].map(([id, p]) => [id, p.name, p.ready ? 1 : 0]) });
+  net.sendEvent({ k: 'roster', df: difficulty, hw: mp.hostWarp ? 1 : 0, players: [...mp.players.entries()].map(([id, p]) => [id, p.name, p.ready ? 1 : 0]) });
   renderRoom();
 }
 
 function leaveMultiplayer() {
   exitSpectate();
+  resetWarpClock();
   mp.wipeTimer = 0;
   if (net.role) net.close();
   game.mp = false;
@@ -2903,6 +2971,7 @@ net.on('hello', (m) => {             // host: a guest introduced themselves
 net.on('roster', (m) => {            // guest: who's in the room
   mp.players = new Map(m.players.map(([id, name, ready]) => [id, { name, ready: !!ready }]));
   mp.difficulty = validDifficulty(m.df);
+  mp.hostWarp = !!m.hw;
   for (const [id, r] of remotes) if (!mp.players.has(id)) { r.dispose(); remotes.delete(id); }
   for (const [id, r] of remotes) r.name = pilotName(id);
   if (lobbyOpen()) setLobbyStatus(`Waiting for ${pilotName(0)} to launch`, 'busy');
@@ -2918,6 +2987,7 @@ net.on('name', (m) => {              // host: a guest renamed
 net.on('start', (m) => {             // guest
   mp.epoch = m.epoch;
   mp.difficulty = validDifficulty(m.df);
+  mp.hostWarp = !!m.hw;
   if (net.synced) startMultiplayer();
   else { mp.pendingStart = true; setLobbyStatus('Syncing clocks', 'busy'); }
 });
@@ -2926,10 +2996,10 @@ net.on('synced', () => { if (mp.pendingStart) startMultiplayer(); });
 // ---------------------------------------------------------------------------
 // Network events — flight
 // ---------------------------------------------------------------------------
-net.on('s', (snap) => { if (game.mp && snap.from !== net.myId) remoteFor(snap.from).applySnapshot(snap, net.netTime()); });
+net.on('s', (snap) => { if (game.mp && snap.from !== net.myId) remoteFor(snap.from).applySnapshot(snap, worldNow(), 0.6 * game.warp); });
 net.on('f', (f) => {
   if (!game.mp) return;
-  const late = Math.min(Math.max(net.netTime() - f.t, 0), 0.5);
+  const late = Math.min(Math.max(worldNow() - f.t, 0), 0.5);
   _v1.fromArray(f.p); _v2.fromArray(f.v);
   _v1.addScaledVector(_v2, late);
   allyBolts.spawn(_v1, _v2, BOLT_LIFE - late, 0);
@@ -2950,7 +3020,7 @@ net.on('ws', (m) => {
   if (!isGuest()) return;
   game.wave = m.wave;
   game.waveActive = !!m.active;
-  if (Math.abs(game.waveTimer - m.timer) > 0.5) game.waveTimer = m.timer;
+  if (Math.abs(game.waveTimer - m.timer) > 0.5 * game.warp) game.waveTimer = m.timer;
 });
 net.on('waveStart', (m) => {
   if (!isGuest()) return;
@@ -2970,7 +3040,7 @@ net.on('waveClear', (m) => {
 });
 net.on('ef', (m) => {                // an enemy fired: everyone simulates the same bolts
   if (!isGuest()) return;
-  const late = Math.min(Math.max(net.netTime() - m.t, 0), 0.5);
+  const late = Math.min(Math.max(worldNow() - m.t, 0), 0.5);
   _v1.fromArray(m.p);
   for (let i = 0; i < m.v.length; i += 3) {
     _v2.set(m.v[i], m.v[i + 1], m.v[i + 2]);
@@ -2993,6 +3063,22 @@ net.on('salvaged', (m) => { if (isGuest()) wrecks.removeById(m.id); });
 net.on('beam', (m) => {               // a lancer fired: draw it, and check it against our own ship
   if (!isGuest()) return;
   fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg);
+});
+// shared time warp
+net.on('warpReq', (m) => {            // host: a pilot wants a different warp
+  if (!game.mp || !net.isHost) return;
+  if (m.w > 1 && mp.hostWarp) { net.sendEvent({ k: 'warpDenied', why: 'ONLY THE HOST CAN CONTROL IT' }, m.from); return; }
+  const w = WARP_LEVELS.includes(m.w) ? m.w : 1;
+  if (w < warpTarget() || !mp.hostWarp) hostSetWarp(w, m.from, typeof m.why === 'string' ? m.why.slice(0, 40) : '');
+});
+net.on('warp', (m) => {               // everyone: a scheduled warp change
+  if (!isGuest()) return;
+  warpClock.pending = { w: m.w, at: m.at, W0: m.W0, by: m.by, why: m.why || '' };
+});
+net.on('warpDenied', (m) => {
+  if (!isGuest()) return;
+  hud.notice(`TIME WARP · ${m.why}`, 'dim');
+  audio.beep(240, 0.1, 0.05, 'square');
 });
 net.on('tkill', (m) => {             // a dreadnought turret was destroyed
   if (!isGuest()) return;
@@ -3063,6 +3149,7 @@ net.on('disconnected', (reason) => {
   if (game.mp) {
     // carry on alone: the host's enemies are gone, so restart the wave clock locally
     game.mp = false;
+    resetWarpClock();
     for (const e of game.enemies) e.destroy();
     game.enemies.length = 0;
     clearRemotes();
@@ -3188,6 +3275,11 @@ function renderRoom() {
   const ready = readyGuests();
   const key = rows.join('') + net.code + host + ready;
   renderDifficulty();
+  // host-only time warp: the host's checkbox; guests see it read-only
+  const hw = document.getElementById('hostwarp');
+  hw.checked = mp.hostWarp;
+  hw.disabled = !host;
+  document.getElementById('lobby-hostwarp').classList.toggle('locked', !host);
   if (key === roomKey) return;
   roomKey = key;
   lobbyEls.players.innerHTML = rows.join('');
@@ -3226,6 +3318,7 @@ async function hostGame(remote = false) {
   const share = remote ? remoteShare() : null;
   if (remote ? !share : !net.available) return;
   mp.players.clear();
+  mp.hostWarp = false;     // a new room starts with shared time warp
   showRoom();
   lobbyEls.code.textContent = '·····';
   lobbyEls.code.classList.remove('long');
@@ -3289,6 +3382,13 @@ lobbyEls.code.addEventListener('click', async (e) => {
   } catch { /* clipboard blocked: the code is selectable */ }
 });
 bind('btn-start', hostStart);
+document.getElementById('hostwarp').addEventListener('change', (e) => {
+  if (!net.isHost) { e.target.checked = mp.hostWarp; return; }
+  mp.hostWarp = e.target.checked;
+  audio.init(); audio.uiClick();
+  broadcastRoster();
+});
+document.getElementById('lobby-hostwarp').addEventListener('click', (e) => e.stopPropagation());
 bind('btn-lobby-back', leaveRoom);
 lobbyEls.input.addEventListener('input', () => {
   const v = normalizeCode(lobbyEls.input.value);

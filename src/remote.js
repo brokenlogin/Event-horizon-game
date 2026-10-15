@@ -61,7 +61,8 @@ export class RemotePlayer {
 
   get present() { return this.hasState; }
 
-  applySnapshot(s, now) {
+  /** `now` is the shared world clock; maxExtrap grows with time warp (world time runs faster). */
+  applySnapshot(s, now, maxExtrap = MAX_EXTRAP) {
     if (s.t <= this.lastT) return;            // out of order / duplicate
     this.lastT = s.t;
     _p.fromArray(s.p); _v.fromArray(s.v);
@@ -75,7 +76,7 @@ export class RemotePlayer {
     this.clamp = s.dc || 0;
 
     // bring the snapshot forward to the present with the real physics
-    let dt = Math.min(Math.max(now - s.t, 0), MAX_EXTRAP);
+    let dt = Math.min(Math.max(now - s.t, 0), maxExtrap);
     while (dt > 1e-6) {
       const h = Math.min(EXTRAP_STEP, dt);
       if (!this.docked) integrate(_p, _v, this.thrust, h);

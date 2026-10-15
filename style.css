@@ -458,3 +458,9 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 
 /* time warp indicator (under the wave timer) */
 #wave-timer small.warp { color: #6dff9a; text-shadow: 0 0 8px rgba(109, 255, 154, 0.7); font-size: 12px; letter-spacing: 4px; margin-top: 6px; }
+
+/* waiting room: host-only time warp */
+.lobby-check { pointer-events: auto; display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 10px; letter-spacing: 3px; color: rgba(217, 246, 255, 0.75); margin: 2px 0 6px; cursor: pointer; }
+.lobby-check input { accent-color: var(--cyan); width: 14px; height: 14px; cursor: pointer; }
+.lobby-check.locked { opacity: 0.6; cursor: default; }
+.lobby-check.locked input { cursor: default; }
