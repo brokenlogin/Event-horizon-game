@@ -297,6 +297,8 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyF' && player.docked) undock();
     if (e.code === 'KeyN') callNextWave();
     if (e.code === 'KeyB') toggleDockAssist();
+    if (e.code === 'Comma') changeWarp(-1);
+    if (e.code === 'Period') changeWarp(1);
   }
   if ((e.code === 'KeyP' || (e.code === 'Escape' && document.pointerLockElement !== canvas)) && state === 'playing') pauseGame();
   else if ((e.code === 'KeyP' || e.code === 'Escape') && state === 'dead' && mp.spectating) setOverlay('pause');
@@ -349,6 +351,7 @@ const game = {
   scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   mp: false,
   bumpCd: 0, clearHold: 0, chargeBeep: 0,
+  warp: 1,   // time warp between waves (solo): 1–10×
   enemyFire, turretFire, bossLaunch, nearestPilot, lancerFire, layMine, supportTarget,
   seenTypes: new Set(),
 };
@@ -1092,6 +1095,52 @@ wrecks.onCollect = (w, by) => {
   else hud.popup(innerWidth / 2, innerHeight * 0.4, `+${w.value} SCRAP`, sub);
 };
 
+// ---------------------------------------------------------------------------
+// Time warp: between waves, with nothing hostile around, , and . step game
+// time between 1× and 10× (handy while the docking assist flies you in). It
+// drops back to 1× by itself 10 s before the next wave or if anything hits you.
+// Solo only: in multiplayer the host's clock drives everyone's world.
+// ---------------------------------------------------------------------------
+const WARP_LEVELS = [1, 2, 3, 5, 10];
+const WARP_STOP = 10;        // seconds before a wave when warp ends
+
+/**
+ * Why time warp isn't allowed right now, or '' if it is. `starting` adds the
+ * checks that only stop you turning it on (recent damage); once warping,
+ * damagePlayer() handles hits.
+ */
+function warpBlocker(starting = true) {
+  if (game.mp) return 'SOLO ONLY';
+  if (state !== 'playing' || !player.alive) return 'UNAVAILABLE';
+  if (game.waveActive || hostileCount() > 0 || game.spawnQueue.length) return 'HOSTILES IN THE AREA';
+  if (game.waveTimer <= WARP_STOP) return 'NEXT WAVE TOO CLOSE';
+  if (pred.impact && !player.docked && !player.docking) return 'ON COURSE INTO THE HOLE';
+  if (starting && game.underAttack > 0) return 'TAKING DAMAGE';
+  return '';
+}
+
+function changeWarp(dir) {
+  const i = WARP_LEVELS.indexOf(game.warp);
+  const next = WARP_LEVELS[THREE.MathUtils.clamp((i < 0 ? 0 : i) + dir, 0, WARP_LEVELS.length - 1)];
+  if (next === game.warp) return;
+  if (next > 1) {
+    const why = warpBlocker();
+    if (why) { hud.notice(`TIME WARP · ${why}`, 'dim'); audio.beep(240, 0.1, 0.05, 'square'); return; }
+  }
+  game.warp = next;
+  hud.notice(next > 1 ? `TIME WARP ${next}×` : 'TIME WARP OFF', next > 1 ? 'green' : 'dim');
+  audio.beep(500 + next * 90, 0.06, 0.05, 'sine');
+}
+
+/** Every frame while warping: fall back to 1× as soon as it stops being safe. */
+function checkWarp() {
+  const why = warpBlocker(false);
+  if (!why) return;
+  game.warp = 1;
+  hud.notice(why === 'NEXT WAVE TOO CLOSE' ? 'TIME WARP OFF · WAVE INBOUND' : `TIME WARP OFF · ${why}`, 'orange');
+  audio.beep(420, 0.12, 0.06, 'square');
+}
+
 function toggleDockAssist() {
   if (player.docked || player.docking || !player.alive) return;
   if (dockAssist.active) {
@@ -1268,6 +1317,11 @@ function damagePlayer(amount, opts = {}) {
     rem -= a;
   }
   player.hull -= rem;
+  // hits, or anything that gets through to the hull, end time warp
+  if (game.warp > 1 && (!opts.silent || rem > 0)) {
+    game.warp = 1;
+    hud.notice('TIME WARP OFF · TAKING DAMAGE', 'orange');
+  }
   if (!opts.silent) {
     game.trauma = Math.min(1, game.trauma + amount * 0.025);
     game.damageFlash = Math.min(1, game.damageFlash + (rem > 0 ? 0.6 : 0.3));
@@ -1383,6 +1437,7 @@ function startGame(opts = {}) {
   resetEnemyIds();
   game.bumpCd = 0;
   game.clearHold = 0;
+  game.warp = 1;
   game.seenTypes = new Set();
   mp.deadIds.clear();
   station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // slow, thruster-held orbit
@@ -2054,7 +2109,8 @@ function tick(rawDt, render) {
   if (state === 'menu' && net.role) renderRoom();
 
   if (state === 'playing' || state === 'dead' || (state === 'paused' && game.mp)) {
-    const dt = rawDt * game.timeScale;
+    if (game.warp > 1) checkWarp();
+    const dt = rawDt * game.timeScale * game.warp;
     game.time += dt;
 
     const inDock = player.docked || player.docking;
@@ -2074,12 +2130,13 @@ function tick(rawDt, render) {
 
     accumulator += dt;
     let steps = 0;
-    while (accumulator >= FIXED_DT && steps < 10) {
+    const maxSteps = 10 * game.warp;   // time warp needs proportionally more physics steps per frame
+    while (accumulator >= FIXED_DT && steps < maxSteps) {
       physicsStep(FIXED_DT);
       accumulator -= FIXED_DT;
       steps++;
     }
-    if (steps >= 10) accumulator = 0;
+    if (steps >= maxSteps) accumulator = 0;
     game.enemies = game.enemies.filter((e) => e.alive);
 
     // station, docking, salvage
@@ -2201,7 +2258,7 @@ function tick(rawDt, render) {
       hud.setWarnings(warnings);
       hud.setBars(player.shield / SHIELD_MAX, player.hull / player.maxHull, player.heat, player.overheated);
       hud.setScrap(game.scrap);
-      hud.setWaveTimer(game.waveActive ? 0 : game.waveTimer, player.docked);
+      hud.setWaveTimer(game.waveActive ? 0 : game.waveTimer, player.docked, game.warp, !warpBlocker());
       hud.updateStation(station, player, camera, {
         show: !player.docked && !player.docking, canDock: station.canDock(player),
         dockRange: DOCK_RANGE, dockSpeed: DOCK_MAX_REL_SPEED, needsClearance: player.needsClearance, assist: dockAssist.active,
@@ -3280,7 +3337,7 @@ frame();
 
 // debug handle
 window.__eh = {
-  collectBoltTargets, hitEnemy,
+  collectBoltTargets, hitEnemy, changeWarp,
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,

@@ -336,12 +336,14 @@ export class HUD {
   }
 
   /** Countdown between waves. */
-  setWaveTimer(seconds, docked) {
+  setWaveTimer(seconds, docked, warp = 1, canWarp = false) {
     const el = this.el.waveTimer;
     if (seconds <= 0) { el.style.display = 'none'; return; }
     const t = Math.ceil(seconds);
     const txt = `NEXT WAVE ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-    const sub = docked ? '' : t > 6 ? '<small>DOCK TO UPGRADE · [B] DOCKING ASSIST · [N] CALL EARLY</small>' : '';
+    let sub = docked ? '' : t > 6 ? '<small>DOCK TO UPGRADE · [B] DOCKING ASSIST · [N] CALL EARLY</small>' : '';
+    if (warp > 1) sub += `<small class="warp">TIME WARP ${warp}× · [,] SLOWER [.] FASTER</small>`;
+    else if (canWarp) sub += '<small>[,] [.] TIME WARP</small>';
     const html = `${txt}${sub}`;
     if (el._html !== html) { el.innerHTML = html; el._html = html; }
     el.className = t <= 10 ? 'red' : t <= 30 ? 'orange' : '';

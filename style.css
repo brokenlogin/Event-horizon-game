@@ -455,3 +455,6 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 #perf.good b { color: #6dff9a; }
 #perf.ok b { color: var(--orange); }
 #perf.bad b { color: var(--red); }
+
+/* time warp indicator (under the wave timer) */
+#wave-timer small.warp { color: #6dff9a; text-shadow: 0 0 8px rgba(109, 255, 154, 0.7); font-size: 12px; letter-spacing: 4px; margin-top: 6px; }
