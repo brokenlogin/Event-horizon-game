@@ -2732,15 +2732,19 @@ function tick(rawDt, render) {
     updateAegis(visualTime);
     particles.update(dt);
     updateEffects(dt);
+    // watching a wingmate: move their ship first, then put the camera where theirs is
+    const watching = mp.spectating && !(player.docked && player.alive);
+    if (watching) for (const r of remotes.values()) r.update(dt, camera.position, visualTime, station, missiles.capacity);
     if (player.docked && player.alive) updateDockCamera(rawDt);
-    else if (mp.spectating) updateSpectate(rawDt);
+    else if (watching) updateSpectate(rawDt);
     else updateChaseCamera(rawDt);
     if (game.mp && net.isHost) checkWipe(dt);
-    playerBolts.updateVisuals(player.vel);
-    enemyBolts.updateVisuals(player.vel);
+    const vv = viewerVel();
+    playerBolts.updateVisuals(vv);
+    enemyBolts.updateVisuals(vv);
     if (game.mp) {
-      for (const r of remotes.values()) r.update(dt, camera.position, visualTime, station, missiles.capacity);
-      allyBolts.updateVisuals(player.vel);
+      if (!watching) for (const r of remotes.values()) r.update(dt, camera.position, visualTime, station, missiles.capacity);
+      allyBolts.updateVisuals(vv);
       sendSnapshot(rawDt);
       if (isGuest()) pruneProxies();
       else sendWorld(rawDt);
@@ -2865,7 +2869,7 @@ function tick(rawDt, render) {
   }
 
   dust.uniforms.uCam.value.copy(camera.position);
-  dust.uniforms.uVel.value.copy(state === 'playing' || state === 'dead' ? player.vel : _v1.set(0, 0, 0));
+  dust.uniforms.uVel.value.copy(state === 'playing' || state === 'dead' ? viewerVel() : _v1.set(0, 0, 0));
   dust.lines.visible = state !== 'menu' && state !== 'gameover';
   particles.material.uniforms.uScale.value = (renderer.domElement.height) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   finalPass.uniforms.uTime.value = visualTime;
@@ -3034,7 +3038,7 @@ const mp = {
   epoch: 0, sendTimer: 0, worldTimer: 0, waveSyncTimer: 0, starting: false, pendingStart: false,
   players: new Map(),      // pilot id -> { name, ready }
   reqId: 0, pending: new Map(), deadIds: new Set(),
-  spectating: false, spectateId: -1, wipeTimer: 0, reviveBanner: '',
+  spectating: false, spectateId: -1, spectateSnap: -2, wipeTimer: 0, reviveBanner: '',
   difficulty: 'normal',    // the host's pick; every pilot flies with it
   custom: sanitizeCustom({}),   // the host's custom-difficulty numbers
   hostWarp: false,         // host's setting: only the host controls time warp
@@ -3195,6 +3199,7 @@ function livingRemotes() { return [...remotes.entries()].filter(([, r]) => r.pre
 
 function enterSpectate() {
   mp.spectating = true;
+  mp.spectateSnap = -2;   // start right behind whoever we watch first
   hud.show(false);
   hud.hideMarkers();
   spectateEls.root.classList.remove('hidden');
@@ -3218,18 +3223,29 @@ function cycleSpectate() {
 }
 
 const _specQ = new THREE.Quaternion();
+/** Whose velocity the view moves with: the pilot we're watching, else our own ship. */
+function viewerVel() {
+  if (mp.spectating) {
+    const r = remotes.get(mp.spectateId);
+    if (r && r.present && r.alive) return r.vel;
+  }
+  return player.vel;
+}
 function updateSpectate(dt) {
   let r = remotes.get(mp.spectateId);
   if (!r || !r.present || !r.alive) { cycleSpectate(); r = remotes.get(mp.spectateId); }
   if (r && r.present && r.alive) {
-    // chase camera behind the watched pilot
+    // the same chase camera the watched pilot sees (see updateChaseCamera), minus their HUD
+    if (mp.spectateSnap !== mp.spectateId) { camQuat.copy(r.quat); mp.spectateSnap = mp.spectateId; }
     _specQ.copy(r.quat);
-    camQuat.slerp(_specQ, 1 - Math.exp(-dt * 6));
-    camOffset.set(0, 3, 14).applyQuaternion(camQuat);
+    camQuat.slerp(_specQ, 1 - Math.exp(-dt * 9));
+    camOffset.set(0, 2.5, 9.5 + r.throttle * 1.3).applyQuaternion(camQuat);
     camera.position.copy(r.renderPos).add(camOffset);
     camera.quaternion.copy(camQuat);
     spectateEls.target.textContent = `${r.name}${r.docked ? ' (DOCKED)' : ''}`;
-    if (Math.abs(camera.fov - 72) > 0.01) { camera.fov = 72; camera.updateProjectionMatrix(); }
+    fovKick = THREE.MathUtils.lerp(fovKick, r.throttle * 7, 1 - Math.exp(-dt * 4));
+    const fov = 72 + fovKick;
+    if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   } else {
     // nobody to follow: a wide view of the hole instead of wherever you died
     updateMenuCamera(dt);
