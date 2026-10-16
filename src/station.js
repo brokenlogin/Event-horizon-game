@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { gravityAt } from './physics.js';
+import { gravityAt, circularSpeed } from './physics.js';
 import { buildStation } from './ships.js';
 
 // ---------------------------------------------------------------------------
@@ -184,12 +184,20 @@ export class Station {
     return this.dockAnim >= 1;
   }
 
-  /** Place the player just outside their clamp, facing away, drifting clear. */
+  /**
+   * Place the player just outside their clamp, facing along the station's path, on
+   * the free circular orbit that mirrors the station's (same radius, plane and
+   * direction). The station itself is thruster-held below orbital speed, so copying
+   * its velocity would drop you onto a lower ellipse; this way the orbit you leave on
+   * traces the station's own circle, and you pull ahead of it.
+   */
   releasePlayer(player) {
     this.toWorld(this.built.clamps[this.dockClamp].exitLocal, player.pos);
     player.quat.copy(this.quat);
-    const out = _v.set(0, 0, -1).applyQuaternion(this.quat);
-    player.vel.copy(this.vel).addScaledVector(out, 12);
+    const r = player.pos.length();
+    const tangent = _v.crossVectors(this.normal, player.pos).normalize();   // the station's direction of travel
+    if (tangent.dot(this.vel) < 0) tangent.negate();
+    player.vel.copy(tangent).multiplyScalar(circularSpeed(r));
   }
 
   relativeSpeed(player) {
