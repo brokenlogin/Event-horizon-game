@@ -12,7 +12,7 @@ import {
 } from './physics.js';
 import { createBlackHole } from './blackhole.js';
 import { buildPlayerShip, setLoadout } from './ships.js';
-import { buildCockpit, drawCockpit, updateCockpitLamp, EYE } from './cockpit.js';
+import { buildCockpit, drawCockpit, updateCockpitLamp, updateCockpitControls, EYE } from './cockpit.js';
 import { BoltPool, Particles, Trail, createDust } from './fx.js';
 import { Enemy, resetEnemyIds } from './enemies.js';
 import { GameAudio } from './audio.js';
@@ -317,6 +317,11 @@ window.addEventListener('blur', () => { keys.clear(); firing = false; });
 document.addEventListener('mousemove', (e) => {
   if (state !== 'playing' || !player.alive || player.docked || player.docking) return;
   const s = 0.0021 * sensitivity;
+  if (keys.has('KeyV') && firstPerson()) {   // free look: turn your head instead of the ship
+    head.lookYaw = THREE.MathUtils.clamp(head.lookYaw - e.movementX * s, -2.3, 2.3);
+    head.lookPitch = THREE.MathUtils.clamp(head.lookPitch - e.movementY * s * (invertY ? -1 : 1), -1.25, 0.95);
+    return;
+  }
   player.pendingYaw -= e.movementX * s;
   player.pendingPitch -= e.movementY * s * (invertY ? -1 : 1);
 });
@@ -2416,7 +2421,7 @@ function showAt(el, s) {
 // ===========================================================================
 // The head sways inside the cockpit: pressed back under thrust, thrown wide in
 // turns and lagging the ship's rotation a little, with engine buzz at full burn.
-const head = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, drawT: 0 };
+const head = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, lookYaw: 0, lookPitch: 0, drawT: 0 };
 const _headT = new THREE.Vector3();
 function updateCockpitCamera(dt) {
   camQuat.copy(player.quat);
@@ -2437,8 +2442,15 @@ function updateCockpitCamera(dt) {
   _v3.y += Math.sin(t * 77 + 1) * buzz;
   camera.position.copy(_v3).applyQuaternion(player.quat).add(player.pos);
   camera.quaternion.copy(player.quat);
-  _e1.set(head.pitch, head.yaw, 0);
+  if (!keys.has('KeyV')) {   // free look springs back when V is let go
+    const r = Math.exp(-dt * 7);
+    head.lookYaw *= r;
+    head.lookPitch *= r;
+  }
+  _e1.set(head.pitch + head.lookPitch, head.yaw + head.lookYaw, 0, 'YXZ');
   camera.quaternion.multiply(_q1.setFromEuler(_e1));
+  _e1.order = 'XYZ';
+  updateCockpitControls(cockpit, dt, player.yawRate, player.pitchRate, player.throttle);
   shakeCamera(dt);
   // instruments
   updateCockpitLamp(cockpit, dt, player.hull < player.maxHull * 0.3 || game.underAttack > 0);
