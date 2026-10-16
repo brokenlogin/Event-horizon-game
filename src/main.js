@@ -45,7 +45,7 @@ const START_RADIUS = 1100;
 const DANGER_CLOSE = 750;            // kills inside this radius score double
 const TIDAL_RADIUS = 3.4 * RS;       // tidal stress starts here
 const INTERMISSION = 120;            // seconds between waves
-const STATION_RADIUS = 2500;           // high, slow orbit (≈2 min period)
+const STATION_RADIUS = 2500;           // high orbit, held a little under orbital speed (≈1.8 min period)
 const BASE_HULL = 100;
 const SHIELD_MAX = 100;
 
@@ -1821,7 +1821,7 @@ function startGame(opts = {}) {
   resetAbilities();
   game.seenTypes = new Set();
   mp.deadIds.clear();
-  station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // slow, thruster-held orbit
+  station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // thruster-held, a little under orbital speed
   if (multiplayer) syncStation();
   radar.setStationOrbit(station);
   clearRemotes();

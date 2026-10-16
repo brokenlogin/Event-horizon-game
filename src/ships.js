@@ -986,7 +986,7 @@ export function buildStation() {
   nozzleGlow.position.z = 54.6;
   group.add(nozzleGlow);
 
-  // --- station-keeping thrusters (fire toward the hole to hold the slow orbit) ---
+  // --- station-keeping thrusters (fire toward the hole to hold the slightly slow orbit) ---
   const keepers = [];
   for (const sx of [1, -1]) {
     for (const z of [-24, 50]) {

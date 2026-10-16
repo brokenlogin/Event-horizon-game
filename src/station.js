@@ -3,8 +3,9 @@ import { gravityAt, circularSpeed } from './physics.js';
 import { buildStation } from './ships.js';
 
 // ---------------------------------------------------------------------------
-// Orbital outpost. It holds a high, deliberately slow circular orbit: slower
-// than a free orbit at that altitude, so its station-keeping thrusters burn
+// Orbital outpost. It holds a high circular orbit a little slower than a free
+// orbit at that altitude (fast enough that undocking onto the free orbit only
+// drifts you ahead gently, slow enough that it's quick to intercept), so its station-keeping thrusters burn
 // continuously outward (you can see them firing toward the hole) to make up
 // the difference in centripetal force. Docking is automatic when you're close
 // and your speed relative to it is low.
@@ -12,7 +13,7 @@ import { buildStation } from './ships.js';
 
 export const STATION_NAME = 'KEPLER STATION';
 export const DOCK_RANGE = 300;         // m from the station's centre
-export const STATION_SPEED = 100;      // m/s — a free orbit up there would be ~167 m/s
+export const STATION_SPEED = 145;      // m/s — a free orbit up there would be ~167 m/s
 export const DOCK_MAX_REL_SPEED = 40;  // m/s relative to the station
 const DOCK_ANIM_BASE = 1.4;            // s, plus travel time from the capture point
 
