@@ -12,6 +12,7 @@ import {
 } from './physics.js';
 import { createBlackHole } from './blackhole.js';
 import { buildPlayerShip, setLoadout } from './ships.js';
+import { buildCockpit, drawCockpit, updateCockpitLamp, EYE } from './cockpit.js';
 import { BoltPool, Particles, Trail, createDust } from './fx.js';
 import { Enemy, resetEnemyIds } from './enemies.js';
 import { GameAudio } from './audio.js';
@@ -259,6 +260,8 @@ const radar = new Radar3D(document.getElementById('radar'));
 const shipParts = buildPlayerShip();
 scene.add(shipParts.group);
 shipParts.group.visible = false;
+const cockpit = buildCockpit();   // first-person interior, shown only in that view
+shipParts.group.add(cockpit.group);
 
 const player = {
   pos: new THREE.Vector3(),
@@ -2096,7 +2099,9 @@ function updatePlayerVisual(dt, time) {
   g.quaternion.copy(player.quat);
   setLoadout(shipParts, missiles.capacity, missiles.ammo);
   const model = shipParts.model;
-  model.visible = !(firstPerson() && player.alive && !player.docked);   // the cockpit camera sits inside it
+  const inside = firstPerson() && player.alive && !player.docked;   // the cockpit camera sits inside the hull
+  model.visible = !inside;
+  cockpit.group.visible = inside;
   const lx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   const targetRoll = THREE.MathUtils.clamp(player.yawRate * 0.35, -0.7, 0.7) - lx * 0.25;
   const targetPitch = THREE.MathUtils.clamp(player.pitchRate * 0.12, -0.3, 0.3);
@@ -2408,12 +2413,41 @@ function showAt(el, s) {
 // ===========================================================================
 // Camera
 // ===========================================================================
-const COCKPIT = new THREE.Vector3(0, 0.62, -0.25);   // just above the canopy
+// The head sways inside the cockpit: pressed back under thrust, thrown wide in
+// turns and lagging the ship's rotation a little, with engine buzz at full burn.
+const head = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, drawT: 0 };
+const _headT = new THREE.Vector3();
 function updateCockpitCamera(dt) {
   camQuat.copy(player.quat);
-  camera.position.copy(COCKPIT).applyQuaternion(player.quat).add(player.pos);
+  const k = 1 - Math.exp(-dt * 5);
+  const burn = player.throttle * (game.boostT > 0 ? 1.8 : 1);
+  _headT.set(
+    THREE.MathUtils.clamp(-player.yawRate * 0.025, -0.06, 0.06),
+    THREE.MathUtils.clamp(-player.pitchRate * 0.02, -0.04, 0.04) - burn * 0.008,
+    burn * 0.05,
+  );
+  head.pos.lerp(_headT, k);
+  head.yaw = THREE.MathUtils.lerp(head.yaw, THREE.MathUtils.clamp(-player.yawRate * 0.03, -0.08, 0.08), k);
+  head.pitch = THREE.MathUtils.lerp(head.pitch, THREE.MathUtils.clamp(-player.pitchRate * 0.03, -0.06, 0.06), k);
+  const t = performance.now() * 0.001;
+  const buzz = burn * 0.0012;
+  _v3.copy(EYE).add(head.pos);
+  _v3.x += Math.sin(t * 91) * buzz;
+  _v3.y += Math.sin(t * 77 + 1) * buzz;
+  camera.position.copy(_v3).applyQuaternion(player.quat).add(player.pos);
   camera.quaternion.copy(player.quat);
+  _e1.set(head.pitch, head.yaw, 0);
+  camera.quaternion.multiply(_q1.setFromEuler(_e1));
   shakeCamera(dt);
+  // instruments
+  updateCockpitLamp(cockpit, dt, player.hull < player.maxHull * 0.3 || game.underAttack > 0);
+  if ((head.drawT -= dt) <= 0) {
+    head.drawT = 0.1;
+    drawCockpit(cockpit, {
+      player, enemies: game.enemies, missiles, warp: game.warp || 1,
+      speed: player.vel.length(), alt: player.pos.length() - RS,
+    });
+  }
   fovKick = THREE.MathUtils.lerp(fovKick, player.throttle * 5, 1 - Math.exp(-dt * 4));
   const fov = 75 + fovKick;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
