@@ -876,7 +876,7 @@ function mineBlast(e, cause, by) {
     return;
   }
   const def = e.def;
-  explode(e.pos, e.vel, 1.3, [1.0, 0.45, 0.15]);
+  explode(e.pos, e.vel, 2.4, [1.0, 0.45, 0.15]);
   const d = player.pos.distanceTo(e.pos);
   audio.explosion(1.2, THREE.MathUtils.clamp(1.4 - d / 700, 0.15, 1));
   if (player.alive && d < def.blast) {
@@ -2242,7 +2242,7 @@ function physicsStep(h) {
       // mines: each pilot's game sets off the ones it flies into
       const md = e.pos.distanceTo(player.pos);
       const armed = e.age > e.def.arm;
-      e.alert = armed && md < 150;
+      e.alert = armed && md < 260;   // blinks fast as you close on its trigger range
       if (armed && md < e.def.trigger + player.radius) {
         if (guest) { e.rammed = true; net.sendEvent({ k: 'ram', id: e.netId, cause: 'mine' }); }
         else killEnemy(e, 'mine');

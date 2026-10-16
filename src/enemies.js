@@ -32,7 +32,7 @@ export const ENEMY_DEFS = {
     score: 300, trailColor: 0xff8a2a, build: buildSower,
   },
   mine: {
-    hp: 1, inert: true, noClear: true, noWreck: true, life: 45, arm: 1.5, trigger: 26, blast: 45, blastDmg: 24,
+    hp: 1, inert: true, noClear: true, noWreck: true, life: 45, arm: 1.5, trigger: 78, blast: 130, blastDmg: 24,
     score: 25, trailColor: 0xff5a2a, build: buildMine,
   },
   // wave 11+: unarmed; ships near it take far less damage until it's destroyed
