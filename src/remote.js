@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { integrate } from './physics.js';
-import { buildPlayerShip } from './ships.js';
+import { buildPlayerShip, setLoadout } from './ships.js';
 import { Trail } from './fx.js';
 
 // ---------------------------------------------------------------------------
@@ -70,6 +70,7 @@ export class RemotePlayer {
     this.targetQuat.fromArray(s.q);
     this.throttle = s.th;
     this.hull = s.hu; this.shield = s.sh;
+    this.ammo = s.mi || 0;
     const wasAlive = this.alive;
     this.alive = !!s.al;
     this.docked = !!s.dk;
@@ -105,8 +106,9 @@ export class RemotePlayer {
     integrate(this.pos, this.vel, this.thrust, h);
   }
 
-  update(dt, camPos, time, station) {
+  update(dt, camPos, time, station, capacity = 2) {
     if (!this.hasState) return;
+    setLoadout(this.parts, capacity, this.ammo || 0);   // shared upgrades, so the same pylons as ours
     const show = this.alive;
     this.setVisible(show);
     if (!show) return;

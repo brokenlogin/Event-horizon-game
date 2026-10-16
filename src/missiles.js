@@ -160,7 +160,8 @@ export class MissileSystem {
     scene.add(built.group);
     const fwd = _fwd.set(0, 0, -1).applyQuaternion(player.quat);
     const down = _dir.set(0, -1, 0).applyQuaternion(player.quat);
-    const pos = player.pos.clone().addScaledVector(down, 0.9).addScaledVector(fwd, 0.5);
+    const pos = (this.ctx.launchPos && this.ctx.launchPos(this.ammo - 1, new THREE.Vector3()))
+      || player.pos.clone().addScaledVector(down, 0.9).addScaledVector(fwd, 0.5);
     const vel = player.vel.clone().addScaledVector(fwd, LAUNCH_KICK).addScaledVector(down, 6);
     const m = {
       pos, vel, target, built,

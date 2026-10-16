@@ -209,8 +209,8 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 }
 
 /* missiles */
-.missile-pips { display: flex; gap: 8px; }
-.missile-pips i { width: 26px; height: 8px; clip-path: polygon(0 50%, 22% 0, 100% 0, 100% 100%, 22% 100%); background: rgba(255, 173, 74, 0.12); border: 1px solid rgba(255, 173, 74, 0.25); }
+.missile-pips { display: flex; gap: 6px; flex: 1 1 auto; min-width: 0; max-width: 100%; }
+.missile-pips i { flex: 0 1 26px; min-width: 7px; height: 8px; clip-path: polygon(0 50%, 22% 0, 100% 0, 100% 100%, 22% 100%); background: rgba(255, 173, 74, 0.12); border: 1px solid rgba(255, 173, 74, 0.25); }
 .missile-pips i.on { background: var(--orange); box-shadow: 0 0 10px var(--orange); }
 .lock-status { margin-left: auto; font-family: var(--font-display); font-size: 10px; letter-spacing: 2px; color: var(--orange); }
 .lock-status.locked { color: var(--red); animation: blink 0.3s steps(2) infinite; }

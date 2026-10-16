@@ -227,6 +227,47 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
   railTip.position.set(0, -0.32, -3.0);
   rail.add(railTip);
 
+  // --- missile pylons under the wings: one per missile you can carry, filled from the inside out ---
+  const pylons = [];
+  const pylonGeo = new THREE.BoxGeometry(0.06, 0.16, 0.9);
+  const mBody = new THREE.MeshStandardMaterial({ color: 0xdfe4ea, metalness: 0.6, roughness: 0.35, envMapIntensity: 1.4 });
+  const mBand = new THREE.MeshBasicMaterial({ color: hdr(0xff8030, 3) });
+  const mTube = new THREE.CylinderGeometry(0.1, 0.1, 1.25, 8).rotateX(Math.PI / 2);
+  const mNose = new THREE.ConeGeometry(0.1, 0.34, 8).rotateX(-Math.PI / 2);
+  const mRing = new THREE.CylinderGeometry(0.104, 0.104, 0.06, 8).rotateX(Math.PI / 2);
+  const mFin = new THREE.BoxGeometry(0.02, 0.26, 0.22);
+  const slotX = [0.82, 1.22, 1.62, 2.3];
+  for (let i = 0; i < slotX.length * 2; i++) {
+    const s = i % 2 === 0 ? 1 : -1;
+    const x = slotX[Math.floor(i / 2)] * s;
+    const zMid = -0.5 + 0.63 * (Math.abs(x) - 0.25) + 0.75;   // a little behind the leading edge
+    const pylon = new THREE.Group();
+    pylon.position.set(x, -0.04, zMid);
+    model.add(pylon);
+    const rail = new THREE.Mesh(pylonGeo, dark);
+    rail.position.y = -0.08;
+    pylon.add(rail);
+    const missile = new THREE.Group();
+    missile.position.y = -0.27;
+    missile.add(new THREE.Mesh(mTube, mBody));
+    const nose = new THREE.Mesh(mNose, mBody);
+    nose.position.z = -0.79;
+    missile.add(nose);
+    const band = new THREE.Mesh(mRing, mBand);
+    band.position.z = -0.45;
+    missile.add(band);
+    for (let k = 0; k < 4; k++) {
+      const fin = new THREE.Mesh(mFin, mBody);
+      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+      fin.position.set(Math.cos(a) * 0.13, Math.sin(a) * 0.13, 0.5);
+      fin.rotation.z = a - Math.PI / 2;
+      missile.add(fin);
+    }
+    pylon.add(missile);
+    pylon.visible = false;
+    pylons.push({ pylon, missile, local: new THREE.Vector3(x, -0.31, zMid) });
+  }
+
   // nav lights
   const navL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: hdr(0xff2030, 4) }));
   navL.position.set(-2.72, 0.02, 1.55);
@@ -235,11 +276,21 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
   model.add(navL, navR);
 
   return {
-    group, model, flames, navLights: [navL, navR], mk2, rail,
+    group, model, flames, navLights: [navL, navR], mk2, rail, pylons,
     railMuzzle: new THREE.Vector3(0, -0.32, -3.1),
     muzzles: [new THREE.Vector3(2.0, -0.08, -1.0), new THREE.Vector3(-2.0, -0.08, -1.0)],
     engines: [new THREE.Vector3(0.52, 0, 2.4), new THREE.Vector3(-0.52, 0, 2.4)],
   };
+}
+
+/** Show a pylon for each missile the ship can carry and a missile on each loaded one. */
+export function setLoadout(parts, capacity, ammo) {
+  parts.pylons.forEach((p, i) => {
+    const show = i < capacity;
+    if (p.pylon.visible !== show) p.pylon.visible = show;
+    const loaded = i < ammo;
+    if (p.missile.visible !== loaded) p.missile.visible = loaded;
+  });
 }
 
 // ---------------------------------------------------------------------------

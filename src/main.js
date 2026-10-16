@@ -11,7 +11,7 @@ import {
   gravityAt, occludedByHole, accelAt,
 } from './physics.js';
 import { createBlackHole } from './blackhole.js';
-import { buildPlayerShip } from './ships.js';
+import { buildPlayerShip, setLoadout } from './ships.js';
 import { BoltPool, Particles, Trail, createDust } from './fx.js';
 import { Enemy, resetEnemyIds } from './enemies.js';
 import { GameAudio } from './audio.js';
@@ -1101,6 +1101,11 @@ const missiles = new MissileSystem({
   wrecks: () => wrecks.list,
   collectWreck: (w, m) => wrecks.collect(w, m.pos, m.vel, 'missile'),
   explode, hitEnemy, damagePlayer,
+  // missiles leave from the pylon they were hanging on (the outermost loaded one)
+  launchPos: (slot, out) => {
+    const p = shipParts.pylons[slot];
+    return p ? out.copy(p.local).applyQuaternion(player.quat).add(player.pos) : null;
+  },
 });
 
 // The dreadnought goes up in a chain of blasts along its hull.
@@ -2075,6 +2080,7 @@ function updatePlayerVisual(dt, time) {
   const g = shipParts.group;
   g.position.copy(player.pos);
   g.quaternion.copy(player.quat);
+  setLoadout(shipParts, missiles.capacity, missiles.ammo);
   const model = shipParts.model;
   const lx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   const targetRoll = THREE.MathUtils.clamp(player.yawRate * 0.35, -0.7, 0.7) - lx * 0.25;
@@ -2582,7 +2588,7 @@ function tick(rawDt, render) {
     playerBolts.updateVisuals(player.vel);
     enemyBolts.updateVisuals(player.vel);
     if (game.mp) {
-      for (const r of remotes.values()) r.update(dt, camera.position, visualTime, station);
+      for (const r of remotes.values()) r.update(dt, camera.position, visualTime, station, missiles.capacity);
       allyBolts.updateVisuals(player.vel);
       sendSnapshot(rawDt);
       if (isGuest()) pruneProxies();
@@ -2926,7 +2932,7 @@ function sendSnapshot(dt) {
     p: r2(player.pos), v: r2(player.vel), a: r2(player.thrustAcc),
     q: [q.x, q.y, q.z, q.w].map((x) => Math.round(x * 1e4) / 1e4),
     th: round2(player.throttle), al: player.alive ? 1 : 0, dk: (player.docked || player.docking) ? 1 : 0, dc: myClamp(),
-    hu: Math.round(player.hull), sh: Math.round(player.shield),
+    hu: Math.round(player.hull), sh: Math.round(player.shield), mi: missiles.ammo,
   });
 }
 
