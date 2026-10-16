@@ -2764,8 +2764,8 @@ function tick(rawDt, render) {
       radar.update(player, game.enemies, wrecks.list, station, pred, camera.quaternion, visualTime, game.mp ? remotes.values() : NO_TARGETS);
     }
 
-    // post fx
-    const r = player.pos.length();
+    // post fx (when watching a wingmate, from where the camera is, not your wreck)
+    const r = (mp.spectating ? camera.position : player.pos).length();
     game.damageFlash = Math.max(0, game.damageFlash - rawDt * 1.8);
     finalPass.uniforms.uDamage.value = game.damageFlash * 0.7;
     finalPass.uniforms.uAberration.value = THREE.MathUtils.clamp((RS * 7 - r) / (RS * 7), 0, 1) * 0.02 + game.trauma * 0.01;
@@ -2776,7 +2776,11 @@ function tick(rawDt, render) {
       hud.setWarnings([]);
       game.deathTimer += rawDt;
       game.timeScale = THREE.MathUtils.lerp(game.timeScale, 0.6, rawDt);
-      if (game.deathCause === 'CROSSED THE EVENT HORIZON') {
+      if (mp.spectating) {
+        // watching a wingmate: lift the fade-to-black from a fall into the hole
+        finalPass.uniforms.uFade.value = Math.max(0, finalPass.uniforms.uFade.value - rawDt * 2);
+        shipParts.group.visible = false;
+      } else if (game.deathCause === 'CROSSED THE EVENT HORIZON') {
         finalPass.uniforms.uFade.value = Math.min(1, game.deathTimer / 1.8);
         // keep the ship model visible, stretched, as it falls
         updatePlayerVisual(dt, visualTime);
@@ -3121,12 +3125,14 @@ function enterSpectate() {
   hud.show(false);
   hud.hideMarkers();
   spectateEls.root.classList.remove('hidden');
+  orbitLine.visible = false;
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   document.body.style.cursor = '';
   cycleSpectate();
 }
 
 function exitSpectate() {
+  if (mp.spectating) orbitLine.visible = true;
   mp.spectating = false;
   spectateEls.root.classList.add('hidden');
 }
@@ -3150,10 +3156,12 @@ function updateSpectate(dt) {
     camera.position.copy(r.renderPos).add(camOffset);
     camera.quaternion.copy(camQuat);
     spectateEls.target.textContent = `${r.name}${r.docked ? ' (DOCKED)' : ''}`;
+    if (Math.abs(camera.fov - 72) > 0.01) { camera.fov = 72; camera.updateProjectionMatrix(); }
   } else {
+    // nobody to follow: a wide view of the hole instead of wherever you died
+    updateMenuCamera(dt);
     spectateEls.target.textContent = 'NOBODY — EVERY PILOT IS DOWN';
   }
-  if (Math.abs(camera.fov - 72) > 0.01) { camera.fov = 72; camera.updateProjectionMatrix(); }
   camera.updateMatrixWorld();
   const enough = game.scrap >= REVIVE_COST;
   spectateEls.scrap.innerHTML = `<span class="${enough ? 'ok' : ''}">SHARED SCRAP ${game.scrap} / ${REVIVE_COST}</span>`;
@@ -3902,4 +3910,4 @@ window.__eh = {
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
   net, remotes, allyBolts, playerBolts, enemyBolts, mp, reviveAtStation, requestRevive, hostGame, joinGame, hostStart, addScrap, enemyScale, costScale, pilotCount,
-  game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };
+  killPlayer, game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };
