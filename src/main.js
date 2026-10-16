@@ -2217,6 +2217,7 @@ function physicsStep(h) {
     player.pos.multiplyScalar(Math.exp(-h * 0.5));
   }
   for (const e of game.enemies) if (e.alive) e.physics(h);
+  collidePilots(h);
 
   playerBolts.step(h, collectBoltTargets(), (tg, point, dmg) => {
     if (tg.isTurret) hitTurret(tg.owner, tg.index, dmg, point, 'player');
@@ -2317,6 +2318,40 @@ function bossCollision(e) {
       game.trauma = Math.min(1, game.trauma + 0.6);
     }
     return;
+  }
+}
+
+/**
+ * Pilots bump off each other (no damage). Each game moves only its own ship: half
+ * the overlap and half of an equal-mass bounce, so between the two games the pair
+ * separates symmetrically.
+ */
+const PILOT_RADIUS = 2.4;     // ship-to-ship: about the wingspan, not the fuselage hitbox
+const PILOT_BOUNCE = 0.6;     // restitution
+const _pn = new THREE.Vector3();
+const _pr = new THREE.Vector3();
+let pilotBumpCd = 0;
+function collidePilots(h) {
+  pilotBumpCd = Math.max(0, pilotBumpCd - h);
+  if (!game.mp || !player.alive || player.docked || player.docking) return;
+  for (const r of remotes.values()) {
+    if (!r.present || !r.alive || r.docked) continue;
+    _pn.subVectors(player.pos, r.pos);
+    const d = _pn.length();
+    const min = 2 * PILOT_RADIUS;
+    if (d >= min) continue;
+    if (d < 1e-3) _pn.set(0, 1, 0); else _pn.divideScalar(d);
+    player.pos.addScaledVector(_pn, (min - d) * 0.5);
+    const vn = _pr.subVectors(player.vel, r.vel).dot(_pn);
+    if (vn < 0) {
+      player.vel.addScaledVector(_pn, -vn * (1 + PILOT_BOUNCE) * 0.5);
+      if (-vn > 2 && pilotBumpCd <= 0) {
+        pilotBumpCd = 0.4;
+        audio.dockClamp();
+        game.trauma = Math.min(1, game.trauma + Math.min(0.5, -vn * 0.02));
+        sparks(_pr.copy(player.pos).addScaledVector(_pn, -PILOT_RADIUS), player.vel, 10, 1.2, 1.4, 1.8, 12);
+      }
+    }
   }
 }
 
