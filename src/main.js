@@ -19,7 +19,7 @@ import { GameAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
 import { Station, DOCK_RANGE, DOCK_MAX_REL_SPEED } from './station.js';
-import { DockAssist, BodyTarget } from './autopilot.js';
+import { DockAssist, BodyTarget, CAPTURE_R, CAPTURE_V } from './autopilot.js';
 import { Radar3D } from './radar3d.js';
 import { net, PROTOCOL, MAX_PILOTS, normalizeCode, parseShareCode } from './net.js';
 import { RemotePlayer } from './remote.js';
@@ -1493,9 +1493,13 @@ function toggleDockAssist() {
     bossPark.follow(boss);
     dockAssist.station = bossPark;
     dockAssist.stopAt = BOSS_STANDOFF;
+    dockAssist.captureR = BOSS_STANDOFF + 120;   // the "in range" zone updateBossPark hands control back in
+    dockAssist.captureV = 18;
   } else {
     dockAssist.station = station;
     dockAssist.stopAt = 120;
+    dockAssist.captureR = CAPTURE_R;
+    dockAssist.captureV = CAPTURE_V;
   }
   dockAssist.engage();
   audio.beep(880, 0.08, 0.05, 'sine');
@@ -1514,7 +1518,7 @@ function updateBossPark() {
   bossPark.update();
   const d = player.pos.distanceTo(bossPark.pos);
   const rel = _v1.subVectors(player.vel, bossPark.vel).length();
-  if (d < BOSS_STANDOFF + 120 && rel < 12) {
+  if (d < BOSS_STANDOFF + 150 && rel < 25) {   // it manoeuvres to hunt you: close enough to take over
     dockAssist.disengage();
     hud.notice(`IN RANGE · ${Math.round(d)} m FROM THE DREADNOUGHT · YOU HAVE CONTROL`, 'green');
     audio.beep(1320, 0.1, 0.05, 'sine');
