@@ -2218,6 +2218,7 @@ function physicsStep(h) {
   }
   for (const e of game.enemies) if (e.alive) e.physics(h);
   collidePilots(h);
+  collideStation(h);
 
   playerBolts.step(h, collectBoltTargets(), (tg, point, dmg) => {
     if (tg.isTurret) hitTurret(tg.owner, tg.index, dmg, point, 'player');
@@ -2352,6 +2353,20 @@ function collidePilots(h) {
         sparks(_pr.copy(player.pos).addScaledVector(_pn, -PILOT_RADIUS), player.vel, 10, 1.2, 1.4, 1.8, 12);
       }
     }
+  }
+}
+
+/** The station is solid (no damage), except while its clamps have hold of you. */
+let stationBumpCd = 0;
+function collideStation(h) {
+  stationBumpCd = Math.max(0, stationBumpCd - h);
+  if (!player.alive || player.docked || player.docking) return;
+  const hit = station.collide(player.pos, player.vel, 2.2);
+  if (hit > 2 && stationBumpCd <= 0) {
+    stationBumpCd = 0.4;
+    audio.dockClamp();
+    game.trauma = Math.min(1, game.trauma + Math.min(0.6, hit * 0.02));
+    sparks(player.pos, player.vel, 14, 1.2, 1.4, 1.8, 14);
   }
 }
 

@@ -22,6 +22,76 @@ const _q = new THREE.Quaternion();
 const _qInv = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
+// ---------------------------------------------------------------------------
+// Collision hull, in station-local coordinates (see buildStation): cylinders
+// along z, boxes, capsules and the habitat torus. The ring's spokes and pods
+// turn with it, so they're placed per call.
+// ---------------------------------------------------------------------------
+const CYLS = [   // [cx, cy, z0, z1, radius]
+  [0, 0, -48, 48, 5.3],          // spine
+  [0, 0, -31.2, -16.8, 11.4],    // command module
+  [0, 0, -37, -31, 8],           // nose
+  [0, 0, 45.5, 54.5, 8],         // drive
+  [0, 0, 1.5, 10.5, 8.2],        // ring hub
+];
+const BOXES = [  // [cx, cy, cz, hx, hy, hz]
+  [0, 0, -39, 17, 1.6, 2], [0, 0, -39, 1.6, 17, 2],                 // cross mount
+  [0, 17, 40, 0.2, 12, 4.5], [0, -17, 40, 0.2, 12, 4.5],            // radiators
+  [11.6, 0, -24, 1.5, 1.7, 2], [-11.6, 0, -24, 1.5, 1.7, 2], [8.4, 0, 50, 1.5, 1.7, 2], [-8.4, 0, 50, 1.5, 1.7, 2],   // thruster pods
+];
+for (const sx of [1, -1]) for (const px of [20, 44]) for (const pz of [-1, 1]) BOXES.push([sx * px, 0, 30 + pz * 6.4, 10, 0.15, 5.5]);   // solar panels
+const CAPS = [   // [ax, ay, az, bx, by, bz, radius]
+  [3, 0, 30, 64, 0, 30, 0.6], [-3, 0, 30, -64, 0, 30, 0.6],         // solar booms
+  [0, 6, -24, 0, 22, -24, 0.5],                                     // antenna mast
+  [0, 20.5, -24, 0, 20.5, -24, 4.2],                                // antenna dish
+];
+for (const a of [Math.PI / 4, -Math.PI / 4]) CAPS.push([-24 * Math.cos(a), -24 * Math.sin(a), -37, 24 * Math.cos(a), 24 * Math.sin(a), -37, 2]);   // diagonal mount
+const RING_Z = 6, RING_R = 38, RING_TUBE = 3.4;
+const _cp = new THREE.Vector3();
+const _cn = new THREE.Vector3();
+const _ca = new THREE.Vector3();
+const _cb = new THREE.Vector3();
+/** Distance from p to a capsule's surface; normal into _cn. */
+function capsuleDist(p, a, b, rad) {
+  _cb.subVectors(b, a);
+  const t = THREE.MathUtils.clamp(_cp.subVectors(p, a).dot(_cb) / Math.max(_cb.lengthSq(), 1e-9), 0, 1);
+  _cn.subVectors(p, _cp.copy(a).addScaledVector(_cb, t));
+  const d = _cn.length();
+  if (d < 1e-6) _cn.set(0, 1, 0); else _cn.divideScalar(d);
+  return d - rad;
+}
+/** Distance from p to a z-axis cylinder's surface (negative inside); normal into _cn. */
+function cylinderDist(p, cx, cy, z0, z1, R) {
+  const dx = p.x - cx, dy = p.y - cy, rr = Math.hypot(dx, dy);
+  if (p.z >= z0 && p.z <= z1 && rr <= R) {
+    const dR = R - rr, d0 = p.z - z0, d1 = z1 - p.z;
+    if (dR <= d0 && dR <= d1) { if (rr < 1e-6) _cn.set(1, 0, 0); else _cn.set(dx / rr, dy / rr, 0); return -dR; }
+    if (d0 < d1) { _cn.set(0, 0, -1); return -d0; }
+    _cn.set(0, 0, 1); return -d1;
+  }
+  const cz = THREE.MathUtils.clamp(p.z, z0, z1);
+  const k = rr > R ? R / rr : 1;
+  _cn.set(dx - dx * k, dy - dy * k, p.z - cz);
+  const d = _cn.length();
+  if (d < 1e-6) _cn.set(0, 0, 1); else _cn.divideScalar(d);
+  return d;
+}
+/** Distance from p to an axis-aligned box's surface (negative inside); normal into _cn. */
+function boxDist(p, cx, cy, cz, hx, hy, hz) {
+  const qx = p.x - cx, qy = p.y - cy, qz = p.z - cz;
+  const ox = Math.abs(qx) - hx, oy = Math.abs(qy) - hy, oz = Math.abs(qz) - hz;
+  if (ox <= 0 && oy <= 0 && oz <= 0) {
+    if (ox >= oy && ox >= oz) _cn.set(Math.sign(qx) || 1, 0, 0);
+    else if (oy >= oz) _cn.set(0, Math.sign(qy) || 1, 0);
+    else _cn.set(0, 0, Math.sign(qz) || 1);
+    return Math.max(ox, oy, oz);
+  }
+  _cn.set(Math.max(ox, 0) * Math.sign(qx), Math.max(oy, 0) * Math.sign(qy), Math.max(oz, 0) * Math.sign(qz));
+  const d = _cn.length();
+  _cn.divideScalar(Math.max(d, 1e-9));
+  return d;
+}
+
 const _flip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
 export class Station {
@@ -199,6 +269,54 @@ export class Station {
     const tangent = _v.crossVectors(this.normal, player.pos).normalize();   // the station's direction of travel
     if (tangent.dot(this.vel) < 0) tangent.negate();
     player.vel.copy(tangent).multiplyScalar(circularSpeed(r));
+  }
+
+  /**
+   * Bounce a ship (a sphere of `radius`) off the station's structure. Moves `pos`
+   * out of anything it overlaps and reflects its velocity relative to the station.
+   * Returns the speed it hit at (0 if it didn't touch).
+   */
+  collide(pos, vel, radius, restitution = 0.4) {
+    if (pos.distanceToSquared(this.pos) > 90 * 90) return 0;   // well clear (the solar arrays reach ~65 m)
+    const p = this.toLocal(pos, _v);
+    let touched = false;
+    const push = (d) => {
+      if (d >= radius) return;
+      p.addScaledVector(_cn, radius - d);
+      _n.add(_cn);
+      touched = true;
+    };
+    _n.set(0, 0, 0);
+    for (const c of CYLS) push(cylinderDist(p, c[0], c[1], c[2], c[3], c[4]));
+    for (const b of BOXES) push(boxDist(p, b[0], b[1], b[2], b[3], b[4], b[5]));
+    for (const c of CAPS) push(capsuleDist(p, _ca.set(c[0], c[1], c[2]), _cb.set(c[3], c[4], c[5]), c[6]));
+    // docking clamps: an arm and collar per port
+    for (const cl of this.built.clamps) push(cylinderDist(p, cl.portLocal.x, cl.portLocal.y, -52.5, -40, 4.5));
+    // habitat ring: the torus, plus its spokes and pods (which turn with it)
+    {
+      const qx = p.x, qy = p.y, qz = p.z - RING_Z, rr = Math.hypot(qx, qy);
+      if (rr > 1e-6) {
+        _cn.set(qx - qx / rr * RING_R, qy - qy / rr * RING_R, qz);
+        const d = _cn.length();
+        _cn.divideScalar(Math.max(d, 1e-9));
+        push(d - RING_TUBE);
+      }
+      const spin = this.built.ring.rotation.z;
+      for (let i = 0; i < 4; i++) {
+        const a = spin + (i / 4) * Math.PI * 2;
+        const c = Math.cos(a), s = Math.sin(a);
+        push(capsuleDist(p, _ca.set(c * 4.5, s * 4.5, RING_Z), _cb.set(c * 35.5, s * 35.5, RING_Z), 1.4));
+        const b = a + Math.PI / 4;
+        push(capsuleDist(p, _ca.set(Math.cos(b) * 38, Math.sin(b) * 38, RING_Z - 2), _cb.set(Math.cos(b) * 38, Math.sin(b) * 38, RING_Z + 2), 4.2));
+      }
+    }
+    if (!touched) return 0;
+    this.toWorld(p, pos);
+    _n.normalize().applyQuaternion(this.quat);
+    const vn = _cp.subVectors(vel, this.vel).dot(_n);
+    if (vn >= 0) return 0;
+    vel.addScaledVector(_n, -(1 + restitution) * vn);
+    return -vn;
   }
 
   relativeSpeed(player) {
