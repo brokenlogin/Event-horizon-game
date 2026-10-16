@@ -541,3 +541,6 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .cd-buttons { display: flex; gap: 12px; margin-top: 6px; }
 .cd-buttons .btn { min-width: 0; padding-left: 24px; padding-right: 24px; }
 .diff-opts button[data-diff="custom"].on { background: #c59bff; border-color: #c59bff; box-shadow: 0 0 18px rgba(197, 155, 255, 0.45); }
+.cd-hint { font-size: 12px; color: rgba(217, 246, 255, 0.55); text-align: left; }
+.cd-toggle .btn { min-width: 0; padding: 8px 0; width: 92px; pointer-events: auto; }
+.cd-toggle .btn.on { color: #001018; background: var(--cyan); border-color: var(--cyan); opacity: 1; box-shadow: 0 0 18px rgba(94, 242, 255, 0.45); }

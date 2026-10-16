@@ -384,13 +384,14 @@ function sanitizeCustom(c) {
     const v = Number((c || {})[f.key]);
     out[f.key] = Number.isFinite(v) ? THREE.MathUtils.clamp(Math.round(v), f.min, f.max) : 100;
   }
+  out.fpv = !!(c || {}).fpv;   // first-person view
   return out;
 }
 let customDiff = sanitizeCustom(store.get('eh_custom', {}));   // this player's custom settings
 function customDef(c) {
   return {
     name: 'CUSTOM', missiles: 2, dmg: c.dmg / 100, count: c.count / 100, hp: c.hp / 100, price: c.price / 100,
-    desc: `Enemies ${c.count}% · damage ${c.dmg}% · health ${c.hp}% · prices ${c.price}% · 2 missiles`,
+    desc: `Enemies ${c.count}% · damage ${c.dmg}% · health ${c.hp}% · prices ${c.price}% · 2 missiles${c.fpv ? ' · first person' : ''}`,
   };
 }
 const diffInfo = (d, c = customDiff) => (d === 'custom' ? customDef(c) : DIFFICULTIES[d]);
@@ -399,6 +400,8 @@ let difficulty = validDifficulty(store.get('eh_difficulty', 'normal'));   // wha
 game.difficulty = difficulty;                                              // what the current run uses
 game.custom = customDiff;                                                  // its custom numbers (the host's in multiplayer)
 const diffDef = () => diffInfo(game.difficulty, game.custom);
+/** First-person view: a custom-difficulty option (the host's choice in multiplayer). */
+const firstPerson = () => game.difficulty === 'custom' && !!game.custom.fpv;
 const bestKey = (d) => (d === 'normal' ? 'eh_best' : `eh_best_${d}`);
 let best = store.get(bestKey(difficulty), 0);
 
@@ -1882,7 +1885,10 @@ function renderCustomEditor() {
     return `<div class="cd-row"><span class="cd-name">${f.name}</span>`
       + `<input type="range" min="50" max="150" step="5" value="${THREE.MathUtils.clamp(v, 50, 150)}" data-key="${f.key}">`
       + `<label class="cd-num"><input type="number" min="${f.min}" max="${f.max}" step="1" value="${v}" data-key="${f.key}">%</label></div>`;
-  }).join('');
+  }).join('')
+    + `<div class="cd-row cd-toggle"><span class="cd-name">FIRST PERSON VIEW</span>`
+    + `<span class="cd-hint">Fly from the cockpit instead of behind the ship</span>`
+    + `<button id="cd-fpv" class="btn small${customDiff.fpv ? ' on' : ''}">${customDiff.fpv ? 'ON' : 'OFF'}</button></div>`;
 }
 function setCustom(key, value, fromSlider) {
   customDiff = sanitizeCustom({ ...customDiff, [key]: value });
@@ -1910,6 +1916,14 @@ customEl.addEventListener('keydown', (e) => { if (e.code === 'Enter' && e.target
 customEl.addEventListener('click', (e) => {
   e.stopPropagation();
   if (e.target.closest('#cd-done') || e.target === customEl) { audio.uiClick(); closeCustomEditor(); }
+  if (e.target.closest('#cd-fpv')) {
+    audio.uiClick();
+    customDiff = sanitizeCustom({ ...customDiff, fpv: !customDiff.fpv });
+    store.set('eh_custom', customDiff);
+    renderCustomEditor();
+    if (net.isHost) broadcastRoster();
+    renderDifficulty();
+  }
   if (e.target.closest('#cd-reset')) {
     audio.uiClick();
     customDiff = sanitizeCustom({});
@@ -2082,6 +2096,7 @@ function updatePlayerVisual(dt, time) {
   g.quaternion.copy(player.quat);
   setLoadout(shipParts, missiles.capacity, missiles.ammo);
   const model = shipParts.model;
+  model.visible = !(firstPerson() && player.alive && !player.docked);   // the cockpit camera sits inside it
   const lx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   const targetRoll = THREE.MathUtils.clamp(player.yawRate * 0.35, -0.7, 0.7) - lx * 0.25;
   const targetPitch = THREE.MathUtils.clamp(player.pitchRate * 0.12, -0.3, 0.3);
@@ -2393,16 +2408,18 @@ function showAt(el, s) {
 // ===========================================================================
 // Camera
 // ===========================================================================
-function updateChaseCamera(dt) {
-  camQuat.slerp(player.quat, 1 - Math.exp(-dt * (player.alive ? 9 : 2)));
-  const pull = player.alive ? player.throttle * 1.3 : 6 + game.deathTimer * 4;
-  camOffset.set(0, 2.5, 9.5 + pull).applyQuaternion(camQuat);
-  camera.position.copy(player.pos).add(camOffset);
-  camera.quaternion.copy(camQuat);
-  if (!player.alive) {
-    camera.lookAt(player.pos);
-  }
-  // screen shake
+const COCKPIT = new THREE.Vector3(0, 0.62, -0.25);   // just above the canopy
+function updateCockpitCamera(dt) {
+  camQuat.copy(player.quat);
+  camera.position.copy(COCKPIT).applyQuaternion(player.quat).add(player.pos);
+  camera.quaternion.copy(player.quat);
+  shakeCamera(dt);
+  fovKick = THREE.MathUtils.lerp(fovKick, player.throttle * 5, 1 - Math.exp(-dt * 4));
+  const fov = 75 + fovKick;
+  if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  camera.updateMatrixWorld();
+}
+function shakeCamera(dt) {
   const s = game.trauma * game.trauma;
   if (s > 0.001) {
     const t = performance.now() * 0.001;
@@ -2415,6 +2432,18 @@ function updateChaseCamera(dt) {
     camera.quaternion.multiply(_q1);
   }
   game.trauma = Math.max(0, game.trauma - dt * 1.4);
+}
+function updateChaseCamera(dt) {
+  if (player.alive && firstPerson()) { updateCockpitCamera(dt); return; }
+  camQuat.slerp(player.quat, 1 - Math.exp(-dt * (player.alive ? 9 : 2)));
+  const pull = player.alive ? player.throttle * 1.3 : 6 + game.deathTimer * 4;
+  camOffset.set(0, 2.5, 9.5 + pull).applyQuaternion(camQuat);
+  camera.position.copy(player.pos).add(camOffset);
+  camera.quaternion.copy(camQuat);
+  if (!player.alive) {
+    camera.lookAt(player.pos);
+  }
+  shakeCamera(dt);
   fovKick = THREE.MathUtils.lerp(fovKick, player.alive ? player.throttle * 7 : 0, 1 - Math.exp(-dt * 4));
   const fov = 72 + fovKick;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
