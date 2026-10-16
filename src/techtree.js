@@ -113,11 +113,30 @@ export class TechTreeUI {
     this.root.addEventListener('click', (e) => {
       e.stopPropagation();
       const node = e.target.closest('.tt-node');
-      if (node) { this.selected = node.dataset.id; audio.uiClick(); this.render(true); return; }
+      if (node) {
+        // double-click a node to buy it (each click re-renders, so time the pair ourselves)
+        const id = node.dataset.id;
+        const now = performance.now();
+        const twice = this.lastClick && this.lastClick.id === id && now - this.lastClick.t < 400;
+        this.lastClick = twice ? null : { id, t: now };
+        this.selected = id;
+        if (twice) this.tryBuy(id);
+        else audio.uiClick();
+        this.render(true);
+        return;
+      }
       const buy = e.target.closest('#tt-buy');
       if (buy && !buy.disabled) { this.cb.buy(`tech:${this.selected}`); this.render(true); return; }
       if (e.target.closest('#tt-close') || e.target === this.root) this.close();
     });
+  }
+
+  /** Buy a node if it's next in line and affordable (same rules as the BUY button). */
+  tryBuy(id) {
+    const n = TECH_BY_ID[id];
+    const v = this.view();
+    if (!n || !techUnlocked(v.levels, n) || v.scrap < techCost(n, v.costMult)) return;
+    this.cb.buy(`tech:${id}`);
   }
 
   get visible() { return !this.root.classList.contains('hidden'); }
@@ -169,7 +188,7 @@ export class TechTreeUI {
     // detail strip
     const n = this.selected && TECH_BY_ID[this.selected];
     if (!n) {
-      this.detail.innerHTML = '<span class="tt-hint">Select a node to see what it does. Abilities are marked ◆.</span>';
+      this.detail.innerHTML = '<span class="tt-hint">Select a node to see what it does, or double-click it to buy. Abilities are marked ◆.</span>';
       return;
     }
     const own = techOwned(v.levels, n), open = techUnlocked(v.levels, n), cost = techCost(n, v.costMult);
