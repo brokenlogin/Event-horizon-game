@@ -22,7 +22,7 @@ export const ENEMY_DEFS = {
   // coasting, then locks for a second before firing, so any thrust then dodges it.
   lancer: {
     hp: 5, accel: 26, turn: 1.6, engageRange: 1400, preferred: 650, approach: 35,
-    weapon: 'beam', fireRange: 1100, charge: 2.5, lockAt: 1.35, beamDmg: 26, beamRange: 1500, cooldown: [4.5, 6.5],
+    weapon: 'beam', fireRange: 1100, charge: 2.5, lockAt: 1.35, beamDmg: 36, beamRange: 1500, cooldown: [4.5, 6.5],
     score: 250, trailColor: 0x3dff8a, build: buildLancer,
   },
   // wave 8+: an armoured mine-layer; its mines drift along its orbit
@@ -351,9 +351,11 @@ export class Enemy {
     const facing = hunting && _fwd.set(0, 0, -1).applyQuaternion(this.quat).dot(_toP) > 0.94;
     if (hunting) {
       // charging normally steadies a lancer by cutting its thrust; the fortress keeps flying
+      // but once the shot is locked it coasts, or the aim (worked out from its velocity) would drift
       const thrust = _thrustKeep.copy(this.thrust);
       face = this.updateCharge(dt, target, game, facing && !blocked, dist, face) || face;
-      this.thrust.copy(thrust);
+      const emergency = r < floor || brakeNeeded > 3;
+      if (!this.locked || emergency) this.thrust.copy(thrust);
     }
     if (this.locked) this.quat.copy(this.lockQuat);
     else {

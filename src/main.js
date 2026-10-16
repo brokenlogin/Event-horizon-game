@@ -728,7 +728,7 @@ function enemyFire(e) {
   }
   enemyFireFx(muzzle, e.vel, e.type === 'warden');
   // everyone simulates the same bolts; each pilot judges hits on their own ship
-  if (game.mp) net.sendEvent({ k: 'ef', t: worldNow(), p: r2(muzzle), ev: r2(e.vel), v: sent, dmg: def.dmg, w: e.type === 'warden' ? 1 : 0 });
+  if (game.mp) net.sendEvent({ k: 'ef', t: simNow(), p: r2(muzzle), ev: r2(e.vel), v: sent, dmg: def.dmg, w: e.type === 'warden' ? 1 : 0 });
 }
 
 /** One shot from a dreadnought turret (its twin barrels alternate). */
@@ -746,7 +746,7 @@ function turretFire(e, t) {
   const life = td.range / td.boltSpeed + 1;   // long enough to reach its full range
   enemyBolts.spawn(muzzle, _q1Vec, life, td.dmg);
   enemyFireFx(muzzle, e.vel, false);
-  if (game.mp) net.sendEvent({ k: 'ef', t: worldNow(), p: r2(muzzle), ev: r2(e.vel), v: r2(_q1Vec), dmg: td.dmg, w: 0, l: round2(life) });
+  if (game.mp) net.sendEvent({ k: 'ef', t: simNow(), p: r2(muzzle), ev: r2(e.vel), v: r2(_q1Vec), dmg: td.dmg, w: 0, l: round2(life) });
 }
 
 /**
@@ -1001,7 +1001,26 @@ function drawBeam(origin, dir, len, color = LANCER_BEAM) {
 }
 
 const BOSS_BEAM = new THREE.Color(0xff3a3a).multiplyScalar(3.2);
-function fireBeam(origin, dir, len, dmg, boss = false) {
+// Beam hitbox: the fuselage plus spheres down each wing (the MK2's nacelles sit inside the outer ones),
+// in the ship's frame as [x, z, radius].
+const BEAM_HULL = [[0, 0, 1.6], [0, -1.6, 0.9], [1.25, 0.6, 0.9], [-1.25, 0.6, 0.9], [2.35, 1.1, 0.75], [-2.35, 1.1, 0.75]];
+const _bh = new THREE.Vector3();
+/** How close a beam passes to the ship's hull (negative = through it). */
+function beamMiss(origin, dir, len, pos, quat) {
+  let best = Infinity;
+  for (const [x, z, rad] of BEAM_HULL) {
+    _bh.set(x, 0, z).applyQuaternion(quat).add(pos).sub(origin);
+    const t = THREE.MathUtils.clamp(_bh.dot(dir), 0, len);
+    best = Math.min(best, _bh.addScaledVector(dir, -t).length() - rad);
+  }
+  return best;
+}
+/**
+ * Draw a beam and work out who it hit. The host (or solo) is the judge for every
+ * pilot, against the same picture of them it aimed with, so lag or clock drift
+ * can't make a shot at someone sitting still miss. Guests only draw it.
+ */
+function fireBeam(origin, dir, len, dmg, boss = false, judge = true) {
   drawBeam(origin, dir, len, boss ? BOSS_BEAM : LANCER_BEAM);
   const light = flashLights[flashIdx];
   flashIdx = (flashIdx + 1) % flashLights.length;
@@ -1009,19 +1028,26 @@ function fireBeam(origin, dir, len, dmg, boss = false) {
   light.userData.t = 1;
   light.userData.peak = 900;
   light.userData.vel = null;
-  // did it hit this pilot's ship?
-  _v2.subVectors(player.pos, origin);
-  const t = THREE.MathUtils.clamp(_v2.dot(dir), 0, len);
-  const miss = _v2.addScaledVector(dir, -t).length();
-  audio.beam(THREE.MathUtils.clamp(1.4 - Math.min(miss, origin.distanceTo(player.pos)) / 900, 0.1, 1));
-  if (!player.alive) return;
-  if (miss < player.radius + (boss ? 2.5 : 0.8)) {
-    damagePlayer(dmg * diffDef().dmg, { cause: 'BURNED BY A LANCER BEAM' });
-    game.trauma = 1;
-    sparks(player.pos, player.vel, 30, 0.6, 2.0, 0.9, 30);
-  } else if (miss < 25) {
-    hud.notice('BEAM NEAR MISS', 'dim');
+  const margin = boss ? 3 : 1.2;   // about the drawn beam's width
+  const miss = beamMiss(origin, dir, len, player.pos, player.quat);
+  audio.beam(THREE.MathUtils.clamp(1.4 - Math.min(Math.max(miss, 0), origin.distanceTo(player.pos)) / 900, 0.1, 1));
+  if (judge) {
+    if (player.alive && !player.docked && miss < margin) beamHitMe(dmg, boss);
+    if (game.mp) {
+      for (const [id, r] of remotes) {
+        if (!r.present || !r.alive || r.docked) continue;
+        if (beamMiss(origin, dir, len, r.pos, r.quat) < margin) net.sendEvent({ k: 'beamHit', dmg, b: boss ? 1 : 0 }, id);
+      }
+    }
   }
+  if (player.alive && miss >= margin + (judge ? 0 : 4) && miss < 25) hud.notice('BEAM NEAR MISS', 'dim');
+}
+
+function beamHitMe(dmg, boss) {
+  if (!player.alive) return;
+  damagePlayer(dmg * diffDef().dmg, { cause: boss ? 'HIT BY THE DREADNOUGHT RAILGUN' : 'BURNED BY A LANCER BEAM' });
+  game.trauma = 1;
+  sparks(player.pos, player.vel, 30, 0.6, 2.0, 0.9, 30);
 }
 
 function lancerFire(e) {
@@ -1031,7 +1057,7 @@ function lancerFire(e) {
   const boss = !!e.def.boss;
   fireBeam(origin, dir, len, e.def.beamDmg, boss);
   if (boss) { game.trauma = Math.min(1, game.trauma + 0.4); audio.explosion(0.8, 0.6); }
-  if (game.mp) net.sendEvent({ k: 'beam', p: r2(origin), d: [dir.x, dir.y, dir.z].map((x) => Math.round(x * 1e5) / 1e5), l: Math.round(len), dmg: e.def.beamDmg, b: boss ? 1 : 0 });
+  if (game.mp) net.sendEvent({ k: 'beam', t: simNow(), p: r2(origin), d: [dir.x, dir.y, dir.z].map((x) => Math.round(x * 1e5) / 1e5), l: Math.round(len), dmg: e.def.beamDmg, b: boss ? 1 : 0 });
 }
 
 /** A sower drops a mine behind it (host / solo); capped per sower. */
@@ -1345,8 +1371,9 @@ function updateAbilityHud() {
 // Multiplayer: warp is shared. Anyone can ask (unless the host turned on
 // host-only warp); the host checks it's safe and schedules the change a moment
 // ahead, so every pilot switches at the same instant. Everything timed by the
-// shared clock (the station's orbit, snapshots, shots) uses worldNow(), the
-// host's clock sped up by the warp.
+// shared clock uses worldNow(), the host's clock sped up by the warp. The
+// simulation follows it (see frameStep), and what it stamps or extrapolates
+// (the station's orbit, snapshots, shots) uses simNow(), the time it has reached.
 // ---------------------------------------------------------------------------
 const WARP_LEVELS = [1, 2, 3, 5, 10];
 const WARP_STOP = 10;        // seconds before a wave when warp ends
@@ -1360,6 +1387,8 @@ function resetWarpClock() {
 }
 function worldAt(t) { return warpClock.W0 + warpClock.rate * (t - warpClock.T0); }
 function worldNow() { return game.mp ? worldAt(net.netTime()) : net.netTime(); }
+/** The world time our simulation has reached (trails worldNow by at most a frame or a hitch being made up). */
+function simNow() { return game.mp && simWorld !== null ? simWorld : worldNow(); }
 
 /** Why the world isn't safe for time warp ('' if it is). In multiplayer the host judges this. */
 function worldWarpBlocker() {
@@ -1713,7 +1742,7 @@ function firePlayer(lockInfo) {
   }
   _v3.copy(player.vel).addScaledVector(dir, boltSpeed());
   playerBolts.spawn(muzzle, _v3, boltLife(), cannonDamage());
-  if (game.mp) net.sendEvent({ k: 'f', t: worldNow(), p: r2(muzzle), v: r2(_v3), l: round2(boltLife()) });
+  if (game.mp) net.sendEvent({ k: 'f', t: simNow(), p: r2(muzzle), v: r2(_v3), l: round2(boltLife()) });
   particles.emit(muzzle.x, muzzle.y, muzzle.z, player.vel.x + dir.x * 20, player.vel.y + dir.y * 20, player.vel.z + dir.z * 20, 0.6, 2.2, 3, 1.4, 0.3, 0.07, false);
   player.heat += heatPerShot();
   if (player.heat >= 1) { player.heat = 1; player.overheated = true; audio.beep(220, 0.25, 0.08, 'sawtooth'); }
@@ -1755,6 +1784,7 @@ function setStartPose(phase) {
 
 function startGame(opts = {}) {
   clearWorld();
+  simWorld = null;
   const multiplayer = !!opts.multiplayer;
   Object.assign(game, {
     mp: multiplayer,
@@ -2588,6 +2618,22 @@ function perfSample(frameMs, cpuMs) {
 }
 togglePerf(!!store.get('eh_perf', false));
 
+/**
+ * How far to step the world this frame. Solo: the frame time (with slow-mo and warp).
+ * Multiplayer: exactly as far as the shared world clock moved, so a hitch or a slow
+ * frame (the frame time is capped at 50 ms) never leaves our ship behind where the
+ * other pilots think it is. A gap is made up over the next few frames.
+ */
+let simWorld = null;
+function frameStep(rawDt) {
+  if (!game.mp) { simWorld = null; return rawDt * game.timeScale * game.warp; }
+  const now = worldNow();
+  if (simWorld === null || now - simWorld > 60 || now < simWorld - 1) simWorld = now - rawDt * game.warp;
+  const dt = THREE.MathUtils.clamp(now - simWorld, 0, (9.5 / 60) * game.warp);   // stay inside maxSteps
+  simWorld += dt;
+  return dt;
+}
+
 function tick(rawDt, render) {
   visualTime += rawDt;
   net.update(rawDt);
@@ -2596,7 +2642,7 @@ function tick(rawDt, render) {
   if (state === 'playing' || state === 'dead' || (state === 'paused' && game.mp)) {
     if (game.mp) updateWarpClock();
     if (warpTarget() > 1) checkWarp();
-    const dt = rawDt * game.timeScale * game.warp;
+    const dt = frameStep(rawDt);
     game.time += dt;
 
     const inDock = player.docked || player.docking;
@@ -3000,7 +3046,7 @@ function r2(v) { return [round2(v.x), round2(v.y), round2(v.z)]; }
 
 /** The station's orbit is analytic, so every pilot derives its phase from the shared clock. */
 function syncStation() {
-  station.phase = STATION_PHASE0 + station.omega * (worldNow() - mp.epoch);
+  station.phase = STATION_PHASE0 + station.omega * (simNow() - mp.epoch);
   station.stateAt(0, station.pos, station.vel);
 }
 
@@ -3044,7 +3090,7 @@ function sendSnapshot(dt) {
   mp.sendTimer = SNAPSHOT_INTERVAL;
   const q = player.quat;
   net.sendState({
-    k: 's', t: worldNow(),
+    k: 's', t: simNow(),
     p: r2(player.pos), v: r2(player.vel), a: r2(player.thrustAcc),
     q: [q.x, q.y, q.z, q.w].map((x) => Math.round(x * 1e4) / 1e4),
     th: round2(player.throttle), al: player.alive ? 1 : 0, dk: (player.docked || player.docking) ? 1 : 0, dc: myClamp(),
@@ -3069,7 +3115,7 @@ function sendWorld(dt) {
       else if (e.def.weapon === 'beam') row.push(Math.round(e.charge * 1000) / 1000);   // lancer: how far into its charge
       list.push(row);
     }
-    net.sendState({ k: 'es', t: worldNow(), e: list });
+    net.sendState({ k: 'es', t: simNow(), e: list });
   }
   mp.waveSyncTimer -= dt;
   if (mp.waveSyncTimer <= 0) {
@@ -3081,7 +3127,7 @@ function sendWorld(dt) {
 /** Guest: create / update proxies from the host's enemy snapshot. */
 const _snap = { t: 0, p: [0, 0, 0], v: [0, 0, 0], a: [0, 0, 0], q: [0, 0, 0, 1], hp: 0, th: 0 };
 function applyEnemySnapshot(msg) {
-  const now = worldNow();
+  const now = simNow();
   for (const row of msg.e) {
     const id = row[0];
     if (mp.deadIds.has(id)) continue;
@@ -3123,7 +3169,7 @@ function applyEnemySnapshot(msg) {
 
 /** Guest: drop proxies the host has stopped mentioning (missed kill message etc.). */
 function pruneProxies() {
-  const now = worldNow();
+  const now = simNow();
   for (const e of game.enemies) if (e.alive && e.proxy && now - e.lastSeen > 2.5) e.destroy();
 }
 
@@ -3485,10 +3531,10 @@ net.on('synced', () => { if (mp.pendingStart) startMultiplayer(); });
 // ---------------------------------------------------------------------------
 // Network events — flight
 // ---------------------------------------------------------------------------
-net.on('s', (snap) => { if (game.mp && snap.from !== net.myId) remoteFor(snap.from).applySnapshot(snap, worldNow(), 0.6 * game.warp); });
+net.on('s', (snap) => { if (game.mp && snap.from !== net.myId) remoteFor(snap.from).applySnapshot(snap, simNow(), 0.6 * game.warp); });
 net.on('f', (f) => {
   if (!game.mp) return;
-  const late = Math.min(Math.max(worldNow() - f.t, 0), 0.5);
+  const late = Math.min(Math.max(simNow() - f.t, 0), 0.5);
   _v1.fromArray(f.p); _v2.fromArray(f.v);
   _v1.addScaledVector(_v2, late);
   allyBolts.spawn(_v1, _v2, (f.l || BOLT_LIFE) - late, 0);
@@ -3530,7 +3576,7 @@ net.on('waveClear', (m) => {
 });
 net.on('ef', (m) => {                // an enemy fired: everyone simulates the same bolts
   if (!isGuest()) return;
-  const late = Math.min(Math.max(worldNow() - m.t, 0), 0.5);
+  const late = Math.min(Math.max(simNow() - m.t, 0), 0.5);
   _v1.fromArray(m.p);
   for (let i = 0; i < m.v.length; i += 3) {
     _v2.set(m.v[i], m.v[i + 1], m.v[i + 2]);
@@ -3556,10 +3602,11 @@ net.on('rail', (m) => {               // another pilot's railgun (visual; they a
   audio.beam(THREE.MathUtils.clamp(1.2 - new THREE.Vector3().fromArray(m.p).distanceTo(player.pos) / 1200, 0.1, 0.8));
 });
 net.on('sl', (m) => { if (isGuest()) seekerLaunchAlert(new THREE.Vector3().fromArray(m.p)); });
-net.on('beam', (m) => {               // a lancer fired: draw it, and check it against our own ship
+net.on('beam', (m) => {               // a lancer fired: draw it (the host judges hits)
   if (!isGuest()) return;
-  fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg, !!m.b);
+  fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg, !!m.b, false);
 });
+net.on('beamHit', (m) => { if (isGuest()) beamHitMe(Number(m.dmg) || 0, !!m.b); });   // the host saw a beam hit us
 // shared time warp
 net.on('warpReq', (m) => {            // host: a pilot wants a different warp
   if (!game.mp || !net.isHost) return;
@@ -3937,4 +3984,4 @@ window.__eh = {
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
   net, remotes, allyBolts, playerBolts, enemyBolts, mp, reviveAtStation, requestRevive, hostGame, joinGame, hostStart, addScrap, enemyScale, costScale, pilotCount,
-  killPlayer, game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };
+  killPlayer, worldNow, game, player, camera, startGame, state: () => state, scene, bloom, composer, shipParts, finalPass, particles, blackHole, orbitLine, dust, playerTrails };
