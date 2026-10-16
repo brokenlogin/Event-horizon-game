@@ -261,7 +261,7 @@ const shipParts = buildPlayerShip();
 scene.add(shipParts.group);
 shipParts.group.visible = false;
 const cockpit = buildCockpit();   // first-person interior, shown only in that view
-shipParts.group.add(cockpit.group);
+shipParts.model.add(cockpit.group);
 
 const player = {
   pos: new THREE.Vector3(),
@@ -2100,13 +2100,14 @@ function updatePlayerVisual(dt, time) {
   setLoadout(shipParts, missiles.capacity, missiles.ammo);
   const model = shipParts.model;
   const inside = firstPerson() && player.alive && !player.docked;   // the cockpit camera sits inside the hull
-  model.visible = !inside;
+  for (const m of shipParts.cockpitHide) m.visible = !inside;
   cockpit.group.visible = inside;
   const lx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
-  const targetRoll = THREE.MathUtils.clamp(player.yawRate * 0.35, -0.7, 0.7) - lx * 0.25;
-  const targetPitch = THREE.MathUtils.clamp(player.pitchRate * 0.12, -0.3, 0.3);
-  model.rotation.z = THREE.MathUtils.lerp(model.rotation.z, targetRoll, 1 - Math.exp(-dt * 6));
-  model.rotation.x = THREE.MathUtils.lerp(model.rotation.x, targetPitch, 1 - Math.exp(-dt * 6));
+  // no banking in first person: the cockpit stays locked to your view
+  const targetRoll = inside ? 0 : THREE.MathUtils.clamp(player.yawRate * 0.35, -0.7, 0.7) - lx * 0.25;
+  const targetPitch = inside ? 0 : THREE.MathUtils.clamp(player.pitchRate * 0.12, -0.3, 0.3);
+  model.rotation.z = inside ? 0 : THREE.MathUtils.lerp(model.rotation.z, targetRoll, 1 - Math.exp(-dt * 6));
+  model.rotation.x = inside ? 0 : THREE.MathUtils.lerp(model.rotation.x, targetPitch, 1 - Math.exp(-dt * 6));
   const burn = game.boostT > 0 ? 1.9 : 1;
   for (const f of shipParts.flames) {
     const l = (0.5 + player.throttle * 4.2 + Math.random() * 0.4 * (0.3 + player.throttle)) * burn;
@@ -2422,9 +2423,9 @@ function updateCockpitCamera(dt) {
   const k = 1 - Math.exp(-dt * 5);
   const burn = player.throttle * (game.boostT > 0 ? 1.8 : 1);
   _headT.set(
-    THREE.MathUtils.clamp(-player.yawRate * 0.025, -0.06, 0.06),
-    THREE.MathUtils.clamp(-player.pitchRate * 0.02, -0.04, 0.04) - burn * 0.008,
-    burn * 0.05,
+    THREE.MathUtils.clamp(-player.yawRate * 0.015, -0.035, 0.035),   // the bubble is only 0.6 m wide
+    THREE.MathUtils.clamp(-player.pitchRate * 0.012, -0.02, 0.02) - burn * 0.006,
+    burn * 0.035,
   );
   head.pos.lerp(_headT, k);
   head.yaw = THREE.MathUtils.lerp(head.yaw, THREE.MathUtils.clamp(-player.yawRate * 0.03, -0.08, 0.08), k);

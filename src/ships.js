@@ -172,6 +172,7 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
     addFlame(model, s * 0.52, 0, 2.38, 0.26, flameColor, flames);
   }
 
+  const cockpitHide = [canopy];   // parts the first-person camera would be inside or against
   // --- MK2 refit (shown once bought): wingtip nacelles, gold trim, dorsal fin, canards ---
   const mk2 = new THREE.Group();
   mk2.visible = false;
@@ -193,6 +194,7 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
     trim.position.set(s * 0.34, 0.25, -0.3);
     trim.rotation.y = s * -0.05;
     mk2.add(trim);
+    cockpitHide.push(trim);   // runs right beside the canopy: a glare strip from inside
     const canard = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.04, 0.32), hull);
     canard.position.set(s * 0.55, 0.02, -1.55);
     canard.rotation.y = s * 0.35;
@@ -276,7 +278,7 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
   model.add(navL, navR);
 
   return {
-    group, model, flames, navLights: [navL, navR], mk2, rail, pylons,
+    group, model, flames, navLights: [navL, navR], mk2, rail, pylons, cockpitHide,
     railMuzzle: new THREE.Vector3(0, -0.32, -3.1),
     muzzles: [new THREE.Vector3(2.0, -0.08, -1.0), new THREE.Vector3(-2.0, -0.08, -1.0)],
     engines: [new THREE.Vector3(0.52, 0, 2.4), new THREE.Vector3(-0.52, 0, 2.4)],

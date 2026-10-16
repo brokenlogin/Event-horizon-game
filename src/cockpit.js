@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
-// First-person cockpit: canopy frame, dashboard with live screens, faint glass.
-// Built around the pilot's eye at the origin (forward -Z) and parented to the
-// ship group at EYE, so it moves with the ship while the head sways inside it.
+// First-person cockpit, built inside the player ship's own bubble canopy (the
+// ellipsoid in buildPlayerShip). Coordinates are the ship model's frame
+// (forward -Z); the group is parented to the model so the real nose, canards
+// and trim stay in view around it. Only the exterior canopy shell is hidden.
 // ---------------------------------------------------------------------------
 
-export const EYE = new THREE.Vector3(0, 0.5, -0.35);
+export const EYE = new THREE.Vector3(0, 0.37, -0.32);
+const CANOPY_C = new THREE.Vector3(0, 0.27, -0.45);
+const CANOPY_R = new THREE.Vector3(0.3, 0.22, 0.85);
 
 const CYAN = '#5ef2ff', AMBER = '#ffb14a', RED = '#ff4a5a';
 const W = 256, H = 176;
@@ -21,92 +24,65 @@ function screen(w, h) {
   return { c, g: c.getContext('2d'), tex, mesh };
 }
 
-function tube(points, radius, mat) {
-  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
-  return new THREE.Mesh(new THREE.TubeGeometry(curve, points.length * 10, radius, 6, false), mat);
-}
-
 export function buildCockpit() {
   const group = new THREE.Group();
-  group.position.copy(EYE);
   group.visible = false;
 
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x1b2330, metalness: 0.7, roughness: 0.4 });
-  const dashMat = new THREE.MeshStandardMaterial({ color: 0x0d131b, metalness: 0.3, roughness: 0.75 });
-  const trimMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x5ef2ff).multiplyScalar(1.1) });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x252c3a, metalness: 0.8, roughness: 0.4 });
+  const dashMat = new THREE.MeshStandardMaterial({ color: 0x10161f, metalness: 0.4, roughness: 0.7 });
+  const trimMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x5ef2ff).multiplyScalar(0.7) });
 
-  // --- dashboard: a panel tilted toward the pilot, a hood over it, side consoles ---
-  const tilt = 0.76;
-  const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.3), dashMat);
-  panel.position.set(0, -0.355, -0.54);
-  panel.rotation.x = -tilt;
-  group.add(panel);
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.035, 0.16), frameMat);
-  hood.position.set(0, -0.235, -0.71);
-  group.add(hood);
-  const lip = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.004, 0.004), trimMat);
-  lip.position.set(0, -0.25, -0.63);
-  group.add(lip);
-  for (const s of [-1, 1]) {
-    const con = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.9), dashMat);
-    con.position.set(s * 0.66, -0.48, -0.22);
-    group.add(con);
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.004, 0.8), trimMat);
-    rail.position.set(s * 0.535, -0.33, -0.22);
-    group.add(rail);
+  // --- canopy rim: where the bubble meets the hull ---
+  const rimY = 0.2;
+  const k = Math.sqrt(1 - ((rimY - CANOPY_C.y) / CANOPY_R.y) ** 2);
+  const rimPts = [];
+  for (let i = 0; i < 64; i++) {
+    const a = (i / 64) * Math.PI * 2;
+    rimPts.push(new THREE.Vector3(Math.cos(a) * CANOPY_R.x * k * 0.97, rimY, CANOPY_C.z + Math.sin(a) * CANOPY_R.z * k * 0.97));
   }
+  const rim = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rimPts, true), 128, 0.018, 6, true), frameMat);
+  group.add(rim);
 
-  // screens sit just proud of the panel
-  const onPanel = (m, x, y) => {
-    const n = new THREE.Vector3(0, Math.sin(tilt), Math.cos(tilt));
-    const up = new THREE.Vector3(0, Math.cos(tilt), -Math.sin(tilt));
-    m.position.copy(panel.position).addScaledVector(up, y).addScaledVector(n, 0.004);
-    m.position.x = x;
-    m.rotation.x = -tilt;
-    group.add(m);
-  };
-  const left = screen(0.2, 0.1375), mid = screen(0.18, 0.124), right = screen(0.2, 0.1375);
-  onPanel(left.mesh, -0.25, 0.05);
-  onPanel(mid.mesh, 0, 0.055);
-  onPanel(right.mesh, 0.25, 0.05);
-  // warning lamp between the screens
-  const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff3040).multiplyScalar(3) });
-  const lamp = new THREE.Mesh(new THREE.CircleGeometry(0.012, 16), lampMat);
-  onPanel(lamp, 0, -0.03);
-
-  // --- canopy frame: a window outline, struts out to the corners, side rails, spine ---
-  const frame = [
-    tube([[-0.72, -0.23, -0.69], [-0.66, 0.1, -0.6], [-0.48, 0.34, -0.52], [0, 0.41, -0.5], [0.48, 0.34, -0.52], [0.66, 0.1, -0.6], [0.72, -0.23, -0.69]], 0.022, frameMat),
-    tube([[-0.48, 0.34, -0.52], [-0.54, 0.52, -0.34], [-0.56, 0.62, -0.1]], 0.02, frameMat),
-    tube([[0.48, 0.34, -0.52], [0.54, 0.52, -0.34], [0.56, 0.62, -0.1]], 0.02, frameMat),
-    tube([[-0.72, -0.23, -0.69], [-0.76, -0.22, -0.2], [-0.78, -0.2, 0.2]], 0.02, frameMat),
-    tube([[0.72, -0.23, -0.69], [0.76, -0.22, -0.2], [0.78, -0.2, 0.2]], 0.02, frameMat),
-    tube([[-0.66, 0.1, -0.6], [-0.78, 0.2, -0.25], [-0.8, 0.24, 0.15]], 0.016, frameMat),
-    tube([[0.66, 0.1, -0.6], [0.78, 0.2, -0.25], [0.8, 0.24, 0.15]], 0.016, frameMat),
-    tube([[0, 0.41, -0.5], [0, 0.57, -0.2], [0, 0.62, 0.15]], 0.024, frameMat),
-  ];
-  for (const f of frame) group.add(f);
-
-  // --- glass: barely there, with a glow reflected off the dash low down ---
+  // --- glass: the same ellipsoid as the outside, seen from within ---
   const glass = new THREE.Mesh(
-    new THREE.SphereGeometry(1.05, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    new THREE.SphereGeometry(1, 40, 24),
     new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 } },
-      vertexShader: `varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `varying vec3 vP; uniform float uTime;
+      vertexShader: `varying vec3 vN; varying vec3 vV; varying vec3 vL;
+        void main(){ vL = position; vN = normalize(normalMatrix * normal);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `varying vec3 vN; varying vec3 vV; varying vec3 vL;
         void main(){
-          vec3 d = normalize(vP);
-          float low = smoothstep(0.25, -0.05, d.y) * smoothstep(0.2, -0.6, d.z);
-          float streak = smoothstep(0.035, 0.0, abs(d.x * 0.8 + d.y - 0.55)) * 0.5;
-          float a = low * 0.05 + streak * 0.03;
-          gl_FragColor = vec4(vec3(0.35, 0.85, 1.0) * a, 1.0);
+          float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.5);
+          float streak = smoothstep(0.06, 0.0, abs(vL.x * 0.9 + vL.y * 0.7 - 0.55)) * step(-0.2, vL.z);
+          float a = 0.08 + f * 0.5 + streak * 0.12;
+          gl_FragColor = vec4(mix(vec3(0.03, 0.4, 0.55), vec3(0.5, 0.9, 1.0), f), a);
         }`,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
+      transparent: true, depthWrite: false, side: THREE.BackSide,
     }),
   );
-  glass.position.set(0, -0.15, 0);
+  glass.position.copy(CANOPY_C);
+  glass.scale.copy(CANOPY_R);
   glass.renderOrder = 2;
   group.add(glass);
+
+  // --- instruments: a slim panel just above the hull, below the nose sightline ---
+  const mount = (m, x, y, z) => {
+    m.position.set(x, y, z);
+    m.lookAt(EYE);
+    group.add(m);
+    return m;
+  };
+  const panel = mount(new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.078, 0.02), dashMat), 0, 0.212, -0.655);
+  panel.translateZ(-0.012);
+  const lip = mount(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.0025, 0.0025), trimMat), 0, 0.2515, -0.66);
+  lip.translateZ(-0.004);
+  const left = screen(0.088, 0.06), mid = screen(0.088, 0.06), right = screen(0.088, 0.06);
+  mount(left.mesh, -0.1, 0.215, -0.64);
+  mount(mid.mesh, 0, 0.215, -0.645);
+  mount(right.mesh, 0.1, 0.215, -0.64);
+  // warning lamp in the top edge of the panel
+  const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff3040).multiplyScalar(3) });
+  mount(new THREE.Mesh(new THREE.CircleGeometry(0.004, 16), lampMat), 0, 0.2475, -0.648);
 
   return { group, screens: { left, mid, right }, lampMat, t: 0, blink: 0 };
 }
