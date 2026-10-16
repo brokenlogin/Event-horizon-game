@@ -1256,6 +1256,16 @@ function findRailTarget() {
   return best;
 }
 const railChargeTime = () => (game.levels.railcap ? 0.75 : 1.25);
+/** Scrap per railgun shot: 8, less 1 per Slug Foundry level. */
+const railShotCost = () => Math.max(0, 8 - (game.levels.railecon || 0));
+const canAffordRail = () => game.scrap >= railShotCost();
+/** Pay for a shot. Guests pay locally straight away (no round trip before the shot) and the host takes it from the pool. */
+function payRailShot() {
+  const cost = railShotCost();
+  game.scrap = Math.max(0, game.scrap - cost);
+  if (isGuest()) net.sendEvent({ k: 'railPay', amount: cost });
+  else econBroadcast();
+}
 
 function resetAbilities() {
   Object.assign(game, { boostT: 0, boostCd: 0, railCd: 0, railCharge: 0, rearmT: 0, emergencyUsed: false, railTick: 0 });
@@ -1315,7 +1325,10 @@ function releaseRail() {
   if (!railHeld) return;
   railHeld = false;
   railTarget = null;
-  if (game.railCharge >= 1 && player.alive && !player.docked && !player.docking) fireRailgun();
+  if (game.railCharge >= 1 && player.alive && !player.docked && !player.docking) {
+    if (canAffordRail()) { payRailShot(); fireRailgun(); }
+    else hud.notice(`RAILGUN · NEEDS ${railShotCost()} SCRAP`, 'red');
+  }
   else if (game.railCharge > 0.05) hud.notice('RAILGUN · RELEASED BEFORE FULL CHARGE', 'dim');
   game.railCharge = 0;
 }
@@ -1334,7 +1347,7 @@ function updateAbilities(dt) {
     }
   } else game.rearmT = 0;
   railTarget = railHeld && lv.railgun && player.alive && !player.docked ? findRailTarget() : null;
-  if (railHeld && lv.railgun && player.alive && !player.docked && !player.docking && game.railCd <= 0) {
+  if (railHeld && lv.railgun && player.alive && !player.docked && !player.docking && game.railCd <= 0 && canAffordRail()) {
     const was = game.railCharge;
     game.railCharge = Math.min(1, game.railCharge + dt / railChargeTime());
     game.railTick -= dt;
@@ -1351,7 +1364,8 @@ function updateAbilityHud() {
   if (lv.railgun) {
     const c = game.railCharge;
     const state = game.railCd > 0 ? `<em>${game.railCd.toFixed(1)} s</em>`
-      : c >= 1 ? '<b>RELEASE TO FIRE</b>' : c > 0 ? 'CHARGING' : 'READY';
+      : !canAffordRail() ? `<em>NEEDS ${railShotCost()} SCRAP</em>`
+      : c >= 1 ? '<b>RELEASE TO FIRE</b>' : c > 0 ? 'CHARGING' : `READY · ${railShotCost()} SCRAP`;
     html += `<div class="ab rail${c >= 1 ? ' full' : ''}"><span>RAILGUN <kbd>RMB</kbd></span><i style="--p:${(game.railCd > 0 ? 0 : c).toFixed(2)}"></i>${state}</div>`;
   }
   if (lv.afterburner) {
@@ -3752,6 +3766,12 @@ net.on('spend', (m) => {
   const ok = m.amount > 0 && game.scrap >= m.amount;
   if (ok) { game.scrap -= m.amount; econBroadcast(); }
   net.sendEvent({ k: 'spendRes', id: m.id, ok }, m.from);
+});
+net.on('railPay', (m) => {           // host: a guest fired its railgun (it already paid on its side)
+  if (!game.mp || !net.isHost) return;
+  const amount = THREE.MathUtils.clamp(Number(m.amount) || 0, 0, 8);
+  game.scrap = Math.max(0, game.scrap - amount);
+  econBroadcast();
 });
 net.on('spendRes', (m) => {
   const cb = mp.pending.get(m.id);

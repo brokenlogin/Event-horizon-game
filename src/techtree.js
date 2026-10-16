@@ -36,10 +36,11 @@ function chain(branch, lane, row0, key, name, desc, costs, firstReq = [], kind =
 chain('weapons', 0, 0, 'damage', 'CANNON OVERCHARGE', '+25% cannon damage', [30, 60, 100, 150, 220, 300]);
 chain('weapons', 1, 2, 'rapid', 'RAPID CYCLERS', '+15% cannon fire rate', [120, 200], ['damage2']);
 chain('weapons', 2, 3, 'heatsink', 'HEAT SINKS', '−20% cannon heat per shot', [100, 170], ['damage3']);
-chain('weapons', 1, 4, 'railgun', 'RAILGUN', 'Ability: hold RIGHT MOUSE to charge, release to fire a hypervelocity slug down your sights (700 m; Railgun Coils extend it)', [250], ['damage4'], 'ability');
+chain('weapons', 1, 4, 'railgun', 'RAILGUN', 'Ability: hold RIGHT MOUSE to charge, release to fire a hypervelocity slug down your sights (700 m; Railgun Coils extend it). Each shot costs 8 scrap', [250], ['damage4'], 'ability');
 chain('weapons', 1, 5, 'railrange', 'RAILGUN COILS', '+300 m railgun range and lock range (700 m base, 2.2 km fully upgraded)', [120, 170, 230, 300, 380], ['railgun1']);
-chain('weapons', 2, 5, 'railcap', 'CAPACITOR BANK', 'Railgun charges 40% faster', [180], ['railgun1']);
-chain('weapons', 2, 6, 'railpierce', 'PIERCING SLUG', 'Railgun shots punch through every target in their path', [220], ['railgun1']);
+chain('weapons', 2, 5, 'railecon', 'SLUG FOUNDRY', 'Railgun shots cost 1 scrap less (8 base, 4 fully upgraded)', [100, 150, 210, 280], ['railgun1']);
+chain('weapons', 3, 6, 'railcap', 'CAPACITOR BANK', 'Railgun charges 40% faster', [180], ['railgun1']);
+chain('weapons', 3, 7, 'railpierce', 'PIERCING SLUG', 'Railgun shots punch through every target in their path', [220], ['railgun1']);
 chain('weapons', 3, 5, 'smartammo', 'SMART AMMO', 'Cannon bolts fly 25% faster and 40% farther (about 1.4 km); a wider aim assist that also allows for gravity on long shots', [260], ['damage5', 'heatsink2']);
 // --- missiles ---
 chain('missiles', 0, 0, 'missileCap', 'MISSILE RACKS', '+1 missile carried per wave', [40, 80, 130, 190, 260]);
