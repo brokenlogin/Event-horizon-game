@@ -317,7 +317,7 @@ window.addEventListener('blur', () => { keys.clear(); firing = false; });
 document.addEventListener('mousemove', (e) => {
   if (state !== 'playing' || !player.alive || player.docked || player.docking) return;
   const s = 0.0021 * sensitivity;
-  if (keys.has('KeyV') && firstPerson()) {   // free look: turn your head instead of the ship
+  if (keys.has('KeyV')) {   // free look: turn your head (or swing the chase camera) instead of the ship
     head.lookYaw = THREE.MathUtils.clamp(head.lookYaw - e.movementX * s, -2.3, 2.3);
     head.lookPitch = THREE.MathUtils.clamp(head.lookPitch - e.movementY * s * (invertY ? -1 : 1), -1.25, 0.95);
     return;
@@ -2442,11 +2442,7 @@ function updateCockpitCamera(dt) {
   _v3.y += Math.sin(t * 77 + 1) * buzz;
   camera.position.copy(_v3).applyQuaternion(player.quat).add(player.pos);
   camera.quaternion.copy(player.quat);
-  if (!keys.has('KeyV')) {   // free look springs back when V is let go
-    const r = Math.exp(-dt * 7);
-    head.lookYaw *= r;
-    head.lookPitch *= r;
-  }
+  relaxLook(dt);
   _e1.set(head.pitch + head.lookPitch, head.yaw + head.lookYaw, 0, 'YXZ');
   camera.quaternion.multiply(_q1.setFromEuler(_e1));
   _e1.order = 'XYZ';
@@ -2480,13 +2476,26 @@ function shakeCamera(dt) {
   }
   game.trauma = Math.max(0, game.trauma - dt * 1.4);
 }
+/** Free look springs back to straight ahead when V is let go. */
+function relaxLook(dt) {
+  if (keys.has('KeyV') && player.alive) return;
+  const r = Math.exp(-dt * 7);
+  head.lookYaw *= r;
+  head.lookPitch *= r;
+}
+const _lookQ = new THREE.Quaternion();
 function updateChaseCamera(dt) {
   if (player.alive && firstPerson()) { updateCockpitCamera(dt); return; }
   camQuat.slerp(player.quat, 1 - Math.exp(-dt * (player.alive ? 9 : 2)));
   const pull = player.alive ? player.throttle * 1.3 : 6 + game.deathTimer * 4;
-  camOffset.set(0, 2.5, 9.5 + pull).applyQuaternion(camQuat);
+  // free look (hold V) swings the camera around the ship
+  relaxLook(dt);
+  _e1.set(head.lookPitch, head.lookYaw, 0, 'YXZ');
+  _lookQ.copy(camQuat).multiply(_q1.setFromEuler(_e1));
+  _e1.order = 'XYZ';
+  camOffset.set(0, 2.5, 9.5 + pull).applyQuaternion(_lookQ);
   camera.position.copy(player.pos).add(camOffset);
-  camera.quaternion.copy(camQuat);
+  camera.quaternion.copy(_lookQ);
   if (!player.alive) {
     camera.lookAt(player.pos);
   }
