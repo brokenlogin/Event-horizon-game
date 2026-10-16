@@ -364,12 +364,12 @@ export class Enemy {
     this.updateTurretPositions();
     this.aimTurrets(dt, game, true);
 
-    // seeker launcher: a pair whenever a pilot is in range and in sight
+    // seeker launcher: a volley whenever a pilot is in range and in sight (a pair solo, one per pilot in multiplayer)
     this.launchTimer -= dt;
     if (this.launchTimer <= 0 && this.age > 4) {
       const ok = hunting && dist < def.launchRange && !blocked;
       let launched = false;
-      if (ok) for (let i = 0; i < this.built.launchers.length; i++) launched = game.bossLaunch(this, i) || launched;
+      if (ok) launched = game.bossVolley(this);
       if (launched) {
         const [a, b] = def.launchCooldown;
         this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);

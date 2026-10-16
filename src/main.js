@@ -369,7 +369,7 @@ const game = {
   mp: false,
   bumpCd: 0, clearHold: 0, chargeBeep: 0,
   warp: 1,   // time warp between waves (solo): 1–10×
-  enemyFire, turretFire, bossLaunch, nearestPilot, lancerFire, layMine, supportTarget,
+  enemyFire, turretFire, bossLaunch, bossVolley, nearestPilot, lancerFire, layMine, supportTarget,
   seenTypes: new Set(),
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
@@ -754,8 +754,27 @@ function turretFire(e, t) {
  * seekers are ordinary seekers, but leave no wreck (no farming the fortress).
  * Returns false when too many of its drones are already out.
  */
-function bossLaunch(e, li) {
-  const cap = 4 + 2 * (pilotCount() - 1);   // pairs per volley
+/**
+ * A dreadnought volley. Solo: a pair at you. Multiplayer: one seeker at each
+ * pilot within reach (not docked), so nobody gets the whole volley.
+ */
+function bossVolley(e) {
+  const n = e.built.launchers.length;
+  if (!game.mp) {
+    let any = false;
+    for (let i = 0; i < n; i++) any = bossLaunch(e, i, null, i === 0) || any;
+    return any;
+  }
+  const reach = (e.def.launchRange || 1800) * 1.5;
+  let targets = alivePilots().filter((p) => !p.docked && !p.docking && p.pos.distanceTo(e.pos) < reach);
+  if (!targets.length) targets = [nearestPilot(e.pos)];
+  let any = false;
+  targets.forEach((p, i) => { any = bossLaunch(e, i % n, p, i === 0) || any; });
+  return any;
+}
+
+function bossLaunch(e, li, target = null, alert = true) {
+  const cap = game.mp ? 2 * pilotCount() : 4;   // two volleys' worth in flight at most
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
@@ -763,6 +782,7 @@ function bossLaunch(e, li) {
   scaleEnemyHp(s);
   s.launched = true;
   s.noWreck = true;
+  s.assigned = target;
   const fwd = forwardOf(e.quat, _v3);
   s.pos.copy(e.built.launchers[li]).applyQuaternion(e.quat).add(e.pos);
   s.vel.copy(e.vel).addScaledVector(fwd, 45);
@@ -774,7 +794,7 @@ function bossLaunch(e, li) {
   s.trail.reset(s.pos);
   game.enemies.push(s);
   launchFx(s.pos, s.vel);
-  if (li === 0) {   // one alert per pair
+  if (alert) {   // one alert per volley
     seekerLaunchAlert(s.pos);
     if (game.mp) net.sendEvent({ k: 'sl', p: r2(s.pos) });
   }
@@ -2592,7 +2612,7 @@ function tick(rawDt, render) {
       updateAbilities(dt);
     }
     // enemy AI runs only on the host (or solo); each enemy hunts the nearest pilot
-    if (!isGuest()) for (const e of game.enemies) if (e.alive) e.think(dt, nearestPilot(e.pos), game);
+    if (!isGuest()) for (const e of game.enemies) if (e.alive) e.think(dt, targetFor(e), game);
     else for (const e of game.enemies) if (e.alive && e.turrets) e.aimTurrets(dt, game, false);   // guns follow pilots; the host fires them
 
     accumulator += dt;
@@ -2999,6 +3019,13 @@ function alivePilots() {
   if (player.alive) list.push(player);
   if (game.mp) for (const r of remotes.values()) if (r.present && r.alive) list.push(r);
   return list;
+}
+
+/** Who an enemy goes after: its assigned pilot (seekers from a volley) while they're still up, else the nearest. */
+function targetFor(e) {
+  const t = e.assigned;
+  if (t && t.alive && (t === player || t.present)) return t;
+  return nearestPilot(e.pos);
 }
 
 function nearestPilot(pos) {
