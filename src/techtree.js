@@ -36,9 +36,10 @@ function chain(branch, lane, row0, key, name, desc, costs, firstReq = [], kind =
 chain('weapons', 0, 0, 'damage', 'CANNON OVERCHARGE', '+25% cannon damage', [30, 60, 100, 150, 220, 300]);
 chain('weapons', 1, 2, 'rapid', 'RAPID CYCLERS', '+15% cannon fire rate', [120, 200], ['damage2']);
 chain('weapons', 2, 3, 'heatsink', 'HEAT SINKS', '−20% cannon heat per shot', [100, 170], ['damage3']);
-chain('weapons', 1, 4, 'railgun', 'RAILGUN', 'Ability: hold RIGHT MOUSE to charge, release to fire a hypervelocity slug down your sights (2.5 km)', [250], ['damage4'], 'ability');
-chain('weapons', 1, 5, 'railcap', 'CAPACITOR BANK', 'Railgun charges 40% faster', [180], ['railgun1']);
-chain('weapons', 2, 5, 'railpierce', 'PIERCING SLUG', 'Railgun shots punch through every target in their path', [220], ['railgun1']);
+chain('weapons', 1, 4, 'railgun', 'RAILGUN', 'Ability: hold RIGHT MOUSE to charge, release to fire a hypervelocity slug down your sights (700 m; Railgun Coils extend it)', [250], ['damage4'], 'ability');
+chain('weapons', 1, 5, 'railrange', 'RAILGUN COILS', '+300 m railgun range and lock range (700 m base, 2.2 km fully upgraded)', [120, 170, 230, 300, 380], ['railgun1']);
+chain('weapons', 2, 5, 'railcap', 'CAPACITOR BANK', 'Railgun charges 40% faster', [180], ['railgun1']);
+chain('weapons', 2, 6, 'railpierce', 'PIERCING SLUG', 'Railgun shots punch through every target in their path', [220], ['railgun1']);
 chain('weapons', 3, 5, 'smartammo', 'SMART AMMO', 'Cannon bolts fly 25% faster and 40% farther (about 1.4 km); a wider aim assist that also allows for gravity on long shots', [260], ['damage5', 'heatsink2']);
 // --- missiles ---
 chain('missiles', 0, 0, 'missileCap', 'MISSILE RACKS', '+1 missile carried per wave', [40, 80, 130, 190, 260]);
@@ -80,7 +81,10 @@ export const mk2Ready = (levels) => !levels.mk2 && levels.missileCap >= 3 && lev
 // ---------------------------------------------------------------------------
 const NODE_W = 118, NODE_H = 60, LANE_W = 128, ROW_H = 80, HEAD_H = 34, PAD = 14;
 const BLOCK_W = PAD * 2 + LANE_W * 4 - (LANE_W - NODE_W);
-const BLOCK_H = HEAD_H + PAD + ROW_H * 6 - (ROW_H - NODE_H) + PAD;
+// each row of branches is as tall as its longest branch
+const bandRows = (by) => 1 + Math.max(...nodes.filter((n) => BRANCHES.find((b) => b.id === n.branch).by === by).map((n) => n.row));
+const blockH = (by) => HEAD_H + PAD + ROW_H * bandRows(by) - (ROW_H - NODE_H) + PAD;
+const bandTop = (by) => (by === 0 ? 0 : blockH(0) + GAP);
 const GAP = 22;
 
 const $ = (id) => document.getElementById(id);
@@ -90,7 +94,7 @@ function nodePos(n) {
   const b = BRANCHES.find((x) => x.id === n.branch);
   return {
     x: b.bx * (BLOCK_W + GAP) + PAD + n.lane * LANE_W,
-    y: b.by * (BLOCK_H + GAP) + HEAD_H + PAD + n.row * ROW_H,
+    y: bandTop(b.by) + HEAD_H + PAD + n.row * ROW_H,
   };
 }
 
@@ -141,10 +145,10 @@ export class TechTreeUI {
         paths += `<path d="M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}" class="${lit ? 'lit' : ''}"/>`;
       }
     }
-    const W = BLOCK_W * 2 + GAP, H = BLOCK_H * 2 + GAP;
+    const W = BLOCK_W * 2 + GAP, H = blockH(0) + GAP + blockH(1);
     let html = `<svg class="tt-links" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${paths}</svg>`;
     for (const b of BRANCHES) {
-      html += `<div class="tt-branch" style="left:${b.bx * (BLOCK_W + GAP)}px;top:${b.by * (BLOCK_H + GAP)}px;width:${BLOCK_W}px;height:${BLOCK_H}px;--bc:${b.color}"><div class="tt-bname">${b.name}</div></div>`;
+      html += `<div class="tt-branch" style="left:${b.bx * (BLOCK_W + GAP)}px;top:${bandTop(b.by)}px;width:${BLOCK_W}px;height:${blockH(b.by)}px;--bc:${b.color}"><div class="tt-bname">${b.name}</div></div>`;
     }
     for (const n of TECH) {
       const p = nodePos(n);

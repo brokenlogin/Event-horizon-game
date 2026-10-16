@@ -1230,7 +1230,8 @@ wrecks.onCollect = (w, by) => {
 // Auto-Rearm rebuilds missiles slowly. All come from the tech tree.
 // ---------------------------------------------------------------------------
 const RAIL_DAMAGE = 15;          // × the cannon damage multiplier
-const RAIL_RANGE = 2500;
+const RAIL_BASE_RANGE = 700, RAIL_COIL_RANGE = 300;   // Railgun Coils: +300 m a level (5 levels)
+const railRange = () => RAIL_BASE_RANGE + RAIL_COIL_RANGE * (game.levels.railrange || 0);
 const RAIL_COOLDOWN = 4;
 const BOOST_TIME = 3, BOOST_COOLDOWN = 15;
 const AUTO_REARM_EVERY = 40;
@@ -1248,7 +1249,7 @@ function findRailTarget() {
     if (!t.alive || t.isMissile) continue;
     const d = _v2.subVectors(t.pos, player.pos);
     const dist = d.length();
-    if (dist > RAIL_RANGE || dist < 1) continue;
+    if (dist > railRange() || dist < 1) continue;
     const dot = d.divideScalar(dist).dot(fwd);
     if (dot > bestDot && !occludedByHole(player.pos, t.pos, 1.3)) { bestDot = dot; best = t; }
   }
@@ -1276,7 +1277,7 @@ function fireRailgun() {
   // aim assist: fire straight at whatever is nearest the crosshair, else straight ahead
   const target = findRailTarget();
   const dir = target ? new THREE.Vector3().subVectors(target.pos, origin).normalize() : forwardOf(player.quat, new THREE.Vector3());
-  let len = beamLength(origin, dir, RAIL_RANGE);
+  let len = beamLength(origin, dir, railRange());
   // everything the slug passes through, nearest first (the dreadnought counts once)
   const hits = [];
   const seen = new Set();
