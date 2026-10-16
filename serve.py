@@ -144,7 +144,7 @@ class WebSocket:
 #   relay -> client:  {t:'hosted'} | {t:'joined'} | {t:'error', why}
 #                     {t:'peer-join', peer} | {t:'peer-leave', peer} | {t:'d', m, from?} | {t:'closed'}
 # ---------------------------------------------------------------------------
-MAX_GUESTS = 7      # the game itself admits 3; a little headroom for refusals
+MAX_GUESTS = 11     # the game itself admits 7; a little headroom for refusals
 
 
 class Relay:

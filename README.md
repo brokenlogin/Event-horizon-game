@@ -43,7 +43,7 @@ On waves 5, 10, 15 and so on, an enemy fortress warps in with a smaller escort t
 - **Armour:** 200 hull, plus 30% more on each later appearance and ×crew size in multiplayer. Its health bar sits at the top of the screen.
 - **Six turrets**, each covering its own side of the hull (top, bottom, port, starboard), firing 4-round bursts out to 1300 m. The hull and the hole block their aim. Destroying one is worth 250 points.
 - **Railgun:** like a lancer's but heavier. A red aim line from its nose tracks you, flashes when it locks, then fires a 40-damage beam about a second later. Thrust across the line to dodge; the HUD warns "DREADNOUGHT RAILGUN CHARGING" and "BEAM LOCKED".
-- **Seeker launcher:** a pair of seekers (one per tube) every 6–8 s whenever a pilot is within 2.2 km and in sight (up to 4 out at once, +2 per extra pilot). You get a "SEEKERS LAUNCHED" alert, then "⚠ SEEKER INBOUND · 640 m" with a beep that speeds up as one closes. Launched seekers leave no wreck.
+- **Seeker launcher:** a pair of seekers (one per tube) every 6–8 s whenever a pilot is within 2.2 km and in sight (up to 4 out at once; in multiplayer one seeker per pilot in reach each volley, up to two volleys' worth). You get a "SEEKERS LAUNCHED" alert, then "⚠ SEEKER INBOUND · 640 m" with a beep that speeds up as one closes. Launched seekers leave no wreck.
 - **Lock range:** your missiles lock onto it from 2000 m (double the usual), and aiming anywhere on the hull counts.
 - **Intercept:** with a Dreadnought on the field, B chases it down and holds you 600 m off, then hands control back.
 - **Ramming** it just bounces you off and hurts.
@@ -67,7 +67,7 @@ Pick it on the main menu, above LAUNCH:
 
 Enemy counts stack with crew scaling in multiplayer. Enemy damage covers their cannon fire, seeker rams and collisions with enemy ships. The black hole's tides and the accretion disk hurt the same on every setting. Each difficulty keeps its own best score. In multiplayer the host picks the difficulty in the waiting room and everyone flies with it.
 
-## Multiplayer (up to 4 pilots)
+## Multiplayer (up to 8 pilots)
 
 Everyone opens the game and clicks **MULTIPLAYER**, then sets a **callsign** (it's remembered). Pick a tab:
 
@@ -90,10 +90,10 @@ Keep the relay window open while you play; closing it (or Ctrl+C) ends the sessi
 
 Everyone waits in the room's pilot list until the host presses **START**. Once a flight has launched the room is closed to newcomers.
 
-- **Co-op waves that scale with the crew:** each extra pilot adds +100% hostiles (2 pilots 2×, 3 pilots 3×, 4 pilots 4×) and makes upgrades 60% pricier (2 pilots 1.6×, 3 pilots 2.2×, 4 pilots 2.8×). The host's game runs the enemies and everyone sees the same ones. Each enemy hunts whichever pilot is closest.
+- **Co-op waves that scale with the crew:** each extra pilot up to four adds +100% hostiles (2 pilots 2×, 3 pilots 3×, 4 pilots 4×) and makes upgrades 60% pricier (1.6×, 2.2×, 2.8×). Pilots five to eight count half each (8 pilots: 6× hostiles, 4× prices), which keeps big rooms playable and the host's upload manageable. The host's game runs the enemies and everyone sees the same ones. Each enemy hunts whichever pilot is closest.
 - **Fair hits:** each pilot's game decides whether enemy fire hits *their own* ship. Your hits on enemies go to the host, which applies the damage and credits the kill (and its score) to whoever made it.
 - **Shared economy:** wrecks appear for everyone and can be salvaged once. Scrap goes into one pool, and upgrades apply to every ship. Repairs and rearming use the shared pool but only fix your own ship.
-- **Four docking clamps:** each pilot has their own, and a clamp's light turns amber when it's occupied.
+- **Eight docking clamps:** each pilot has their own (four on the cross-shaped mount, four further out on the diagonals), and a clamp's light turns amber when it's occupied.
 - **Low lag:** ships and enemies are predicted with the same orbital physics between updates, so they stay smooth at internet latencies.
 - If a guest leaves, the flight carries on with the waves rescaled for who's left. If the host leaves, everyone else carries on solo.
 - **No free respawns:** when you're shot down you watch your wingmates. Click to switch who you follow. To bring you back, a living pilot docks at Kepler Station and spends **100 shared scrap** on your revive; you come back docked in your clamp. If every pilot is down at once, the run is over.

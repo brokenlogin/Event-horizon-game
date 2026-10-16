@@ -853,7 +853,8 @@ export function buildStation() {
   nose.position.z = -34;
   group.add(nose);
 
-  // --- four docking clamps on a cross-shaped mount, each with its own approach lights ---
+  // --- eight docking clamps (one per pilot): four on a cross-shaped mount and four further
+  // out on a diagonal one, each with its own approach lights ---
   for (const [w, h] of [[34, 3.2], [3.2, 34]]) {
     const beam = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), dark);
     beam.position.z = -39;
@@ -862,11 +863,22 @@ export function buildStation() {
     beamStrip.position.set(w > h ? 0 : 1.7, w > h ? 1.7 : 0, -41);
     group.add(beamStrip);
   }
+  for (const a of [Math.PI / 4, -Math.PI / 4]) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(48, 3.2, 4), dark);
+    beam.position.z = -37;
+    beam.rotation.z = a;
+    group.add(beam);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(48.2, 0.3, 0.3), accentDim);
+    strip.position.set(-Math.sin(a) * 1.7, Math.cos(a) * 1.7, -39);
+    strip.rotation.z = a;
+    group.add(strip);
+  }
   const guides = [];
   const guideMat = new THREE.SpriteMaterial({ map: getGlowTexture(), color: hdr(0x5ef2ff, 3), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
   const clampMat = new THREE.MeshBasicMaterial({ color: hdr(0x6dff9a, 3) });
   const clamps = [];
-  for (const [x, y] of [[-12, 0], [12, 0], [0, 12], [0, -12]]) {
+  const D = 16.5;   // the diagonal clamps sit further out so their collars clear the cross ones
+  for (const [x, y] of [[-12, 0], [12, 0], [0, 12], [0, -12], [D, D], [-D, D], [-D, -D], [D, -D]]) {
     const arm = zCyl(2.8, 3.6, 12, 12, dark);
     arm.position.set(x, y, -46);
     group.add(arm);
@@ -890,12 +902,12 @@ export function buildStation() {
     // status light: green = free, amber = occupied
     const light = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), clampMat.clone());
     // sits just beside its collar (above the side clamps, beside the top/bottom ones)
-    light.position.set(x ? x : 4.8, x ? 4.8 : y, -52.3);
+    light.position.set(x && y ? x : x ? x : 4.8, x && y ? y + 4.8 : x ? 4.8 : y, -52.3);
     group.add(light);
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 6; i++) {   // (6 rings each keeps the sprite count sane with 8 clamps)
       for (const [gx, gy] of [[5, 0], [-5, 0], [0, 5], [0, -5]]) {
         const sp = new THREE.Sprite(guideMat.clone());
-        sp.position.set(x + gx, y + gy, -60 - i * 9);
+        sp.position.set(x + gx, y + gy, -60 - i * 12);
         sp.scale.setScalar(1.4);
         sp.userData.i = i;
         group.add(sp);

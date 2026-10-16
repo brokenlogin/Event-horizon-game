@@ -12,13 +12,13 @@
 // are simply dropped) and `events` (reliable + ordered: everything else).
 // REMOTE links carry both over one WebSocket.
 //
-// Every message carries `from`, the sender's pilot id (host = 0, guests 1–3).
+// Every message carries `from`, the sender's pilot id (host = 0, guests 1–7).
 // Clock: the host's clock is the reference. Guests measure their offset with
 // NTP-style pings (best-of recent samples), so netTime() is shared.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL = 13;
-export const MAX_PILOTS = 4;
+export const PROTOCOL = 14;
+export const MAX_PILOTS = 8;
 const PREFIX = 'event-horizon-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O, 1/I
 const CODE_LEN = 5;
@@ -144,7 +144,7 @@ class Net {
             const full = this.openLinks().length >= MAX_PILOTS - 1;
             if (this.locked || full) {
               conn.on('open', () => {
-                conn.send({ k: 'refused', why: this.locked ? 'That flight has already launched.' : 'That room is full (4 pilots).' });
+                conn.send({ k: 'refused', why: this.locked ? 'That flight has already launched.' : `That room is full (${MAX_PILOTS} pilots).` });
                 setTimeout(() => conn.close(), 400);
               });
               return;
@@ -330,7 +330,7 @@ class Net {
     if (this.role === 'host') {
       if (m.t === 'peer-join') {
         if (this.locked || this.openLinks().length >= MAX_PILOTS - 1) {
-          this._relayOut({ t: 'd', to: m.peer, m: { k: 'refused', why: this.locked ? 'That flight has already launched.' : 'That room is full (4 pilots).' } });
+          this._relayOut({ t: 'd', to: m.peer, m: { k: 'refused', why: this.locked ? 'That flight has already launched.' : `That room is full (${MAX_PILOTS} pilots).` } });
           setTimeout(() => this._relayOut({ t: 'kick', peer: m.peer }), 400);
           return;
         }

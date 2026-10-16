@@ -106,7 +106,7 @@ const particles = new Particles(scene, 9000);
 const playerBolts = new BoltPool(scene, { max: 400, color: 0x4af0ff, radius: 0.07, length: 4.5, glowRadius: 0.24 });
 const enemyBolts = new BoltPool(scene, { max: 500, color: 0xff3050, radius: 0.16, length: 3.5, glowRadius: 0.55 });
 const allyBolts = new BoltPool(scene, { max: 400, color: 0xffa040, radius: 0.07, length: 4.5, glowRadius: 0.24 });
-// other pilots in a multiplayer session, by pilot id (host 0, guests 1–3)
+// other pilots in a multiplayer session, by pilot id (host 0, guests 1–7)
 const remotes = new Map();
 function remoteFor(id) {
   let r = remotes.get(id);
@@ -534,8 +534,11 @@ function pilotCount() {
   if (!game.mp) return 1;
   return net.isHost ? 1 + net.openLinks().length : Math.max(2, mp.players.size);
 }
-function enemyScale() { return 1 + ENEMIES_PER_PILOT * (pilotCount() - 1); }
-function costScale() { return (1 + COST_PER_PILOT * (pilotCount() - 1)) * diffDef().price; }
+/** Crew size as the waves see it: each pilot up to four counts fully, the rest half (keeps big rooms playable and the host's upload sane). */
+const crewWeightOf = (n) => (n <= 4 ? n : 4 + 0.5 * (n - 4));
+function crewWeight() { return crewWeightOf(pilotCount()); }
+function enemyScale() { return 1 + ENEMIES_PER_PILOT * (crewWeight() - 1); }
+function costScale() { return (1 + COST_PER_PILOT * (crewWeight() - 1)) * diffDef().price; }
 /** Enemy health on this difficulty. */
 function scaleEnemyHp(e) { e.hp = e.maxHp = e.def.hp * diffDef().hp; }
 
@@ -3024,7 +3027,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ===========================================================================
-// Multiplayer (peer-to-peer, up to 4 pilots — see net.js / remote.js)
+// Multiplayer (up to 8 pilots — see net.js / remote.js)
 //
 // The host's game is the referee: it runs the waves, the enemy AI and the
 // shared scrap pool. Guests show the host's enemies as "proxies" (dead-reckoned
@@ -3848,7 +3851,7 @@ function renderRoom() {
   lobbyEls.start.classList.toggle('hidden', !host);
   lobbyEls.start.disabled = !(host && ready > 0);
   lobbyEls.start.textContent = host && ready > 0
-    ? `START · ${ready + 1} PILOTS · HOSTILES ×${(1 + ENEMIES_PER_PILOT * ready).toFixed(1)} · PRICES ×${(1 + COST_PER_PILOT * ready).toFixed(1)}`
+    ? `START · ${ready + 1} PILOTS · HOSTILES ×${(1 + ENEMIES_PER_PILOT * (crewWeightOf(ready + 1) - 1)).toFixed(1)} · PRICES ×${(1 + COST_PER_PILOT * (crewWeightOf(ready + 1) - 1)).toFixed(1)}`
     : 'START';
 }
 

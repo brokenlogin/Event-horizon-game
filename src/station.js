@@ -55,7 +55,7 @@ export class Station {
     // docking state for the player
     this.dockAnim = 0;
     this.dockClamp = 0;
-    this.occupied = [false, false, false, false];   // which clamps hold a ship (for the status lights)
+    this.occupied = this.built.clamps.map(() => false);   // which clamps hold a ship (for the status lights)
     this.captureLocal = new THREE.Vector3();
     this.captureQuat = new THREE.Quaternion();
   }

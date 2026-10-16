@@ -309,7 +309,7 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .card::-webkit-scrollbar-track, .station-panel::-webkit-scrollbar-track { background: transparent; }
 
 /* ===================== MULTIPLAYER ===================== */
-.lobby { max-width: 520px; }
+.lobby { max-width: 600px; }
 .lobby-sub { font-size: 15px; color: rgba(217, 246, 255, 0.65); margin: -8px 0 10px; }
 .lobby-choose { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
 .lobby-or { font-family: var(--font-display); font-size: 10px; letter-spacing: 4px; color: rgba(217, 246, 255, 0.45); margin-top: 6px; }
@@ -341,7 +341,10 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
   background: rgba(94, 242, 255, 0.06); border: 1px solid var(--cyan-faint); color: #fff; padding: 8px 10px; outline: none; user-select: text; -webkit-user-select: text; }
 #callsign:focus { border-color: var(--cyan); box-shadow: 0 0 14px rgba(94, 242, 255, 0.3); }
 .lobby-room { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }
-.lobby-players { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.lobby-players { width: 100%; max-width: 600px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 10px; }
+@media (max-width: 560px) { .lobby-players { grid-template-columns: 1fr; } }
+.lobby-players > * { min-width: 0; }
+.lp b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid rgba(94, 242, 255, 0.18); background: rgba(94, 242, 255, 0.05); }
 .lp i { width: 8px; height: 8px; border-radius: 50%; background: #6dff9a; box-shadow: 0 0 8px #6dff9a; }
 .lp b { font-family: var(--font-display); font-size: 14px; letter-spacing: 2px; color: #fff; font-weight: 500; }
