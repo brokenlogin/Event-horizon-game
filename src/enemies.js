@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { integrate, periapsisEstimate, accelAt, occludedByHole, circularSpeed, ARENA_RADIUS, RS } from './physics.js';
-import { buildRaider, buildWarden, buildSeeker, buildDreadnought, buildLancer, buildSower, buildMine, buildAegis } from './ships.js';
+import { buildRaider, buildWarden, buildSeeker, buildSeeker2, buildDreadnought, buildLancer, buildSower, buildMine, buildAegis } from './ships.js';
 import { Trail } from './fx.js';
 
 export const ENEMY_DEFS = {
@@ -15,8 +15,13 @@ export const ENEMY_DEFS = {
     score: 300, trailColor: 0xd050ff, build: buildWarden,
   },
   seeker: {
-    hp: 2, accel: 38, turn: 4.0, engageRange: 1200, preferred: 0, approach: 70,
+    seeker: true, hp: 2, accel: 38, turn: 4.0, engageRange: 1200, preferred: 0, approach: 70,
     fireRange: 0, ramDamage: 34, score: 150, trailColor: 0xffb030, build: buildSeeker,
+  },
+  // wave 14+ replaces seekers: 30% faster, 50% more damage
+  seeker2: {
+    seeker: true, hp: 2, accel: 38 * 1.3, turn: 4.6, engageRange: 1200, preferred: 0, approach: 70 * 1.3,
+    fireRange: 0, ramDamage: 34 * 1.5, score: 225, trailColor: 0xffe680, build: buildSeeker2,
   },
   // wave 6+: a sniper that charges a beam. It aims where you'll be if you keep
   // coasting, then locks for a second before firing, so any thrust then dodges it.
@@ -524,7 +529,7 @@ export class Enemy {
         this.thrust.copy(_des).clampLength(0, accel);
       }
     } else if (engaged) {
-      if (this.type === 'seeker') {
+      if (def.seeker) {
         // pure pursuit with relative-velocity steering; it overshoots and can be dodged
         _des.copy(dirP).multiplyScalar(def.approach + this.difficulty * 3);
         _des.sub(_rel).multiplyScalar(1.2).add(gDiff);
@@ -574,7 +579,7 @@ export class Enemy {
     }
 
     // guns
-    if (!def.weapon && this.type !== 'seeker' && engaged && !blocked) {
+    if (!def.weapon && !def.seeker && engaged && !blocked) {
       this.fireTimer -= dt;
       const fwd = this.forward;
       const aimDir = _tmp.subVectors(faceTarget, this.pos).normalize();
@@ -683,7 +688,7 @@ export class Enemy {
       this.built.core.scale.setScalar(p);
       this.built.coreGlow.material.opacity = 0.75 + Math.sin(time * 2.2) * 0.25;
     }
-    if (this.type === 'seeker') {
+    if (this.def.seeker) {
       this.built.model.rotation.z += dt * 3;
       this.built.model.rotation.x += dt * 1.7;
       const s = 1 + Math.sin(time * 14) * 0.15;

@@ -384,11 +384,11 @@ export function buildWarden() {
   return { group, model, flames, mats: [m.hull, m.dark], radius: 4.6, ringPivot, muzzles: [new THREE.Vector3(0, 0, -2.6)] };
 }
 
-export function buildSeeker() {
+export function buildSeeker(hullHex = 0x8a6a2a, glowHex = 0xffc23a, flameHex = 0xffa020) {
   const group = new THREE.Group();
   const model = new THREE.Group();
   group.add(model);
-  const m = enemyMaterials(0x8a6a2a, 0xffc23a);
+  const m = enemyMaterials(hullHex, glowHex);
 
   const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.82, 1), m.glow);
   model.add(core);
@@ -405,10 +405,13 @@ export function buildSeeker() {
     model.add(s);
   }
   const flames = [];
-  addFlame(model, 0, 0, 1.0, 0.3, 0xffa020, flames);
+  addFlame(model, 0, 0, 1.0, 0.3, flameHex, flames);
   model.scale.setScalar(1.35);
   return { group, model, flames, mats: [m.hull, m.dark], radius: 2.8, core, muzzles: [] };
 }
+
+/** Seeker MK2 (wave 14+): the same drone in a lighter yellow. */
+export const buildSeeker2 = () => buildSeeker(0xa8984a, 0xffeb7a, 0xffe050);
 
 // ---------------------------------------------------------------------------
 // Lancer: a long-range beam sniper. Twin prongs frame the emitter; a thin aim

@@ -554,6 +554,10 @@ function hostileCount() {
   return n;
 }
 
+/** Seekers from wave 14 on are the faster, harder-hitting MK2. */
+const seekerType = (n) => (n > 13 ? 'seeker2' : 'seeker');
+const isSeekerType = (t) => t === 'seeker' || t === 'seeker2';
+
 function waveComposition(n) {
   const list = [];
   const k = enemyScale() * diffDef().count;   // crew size × difficulty
@@ -562,7 +566,7 @@ function waveComposition(n) {
     const seekers = Math.round(Math.min(Math.floor(n / 1.5), 6) * k * 0.35);
     const lancers = n >= 10 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k * 0.4) : 0;
     for (let i = 0; i < raiders; i++) list.push('raider');
-    for (let i = 0; i < seekers; i++) list.push('seeker');
+    for (let i = 0; i < seekers; i++) list.push(seekerType(n));
     for (let i = 0; i < lancers; i++) list.push('lancer');
     for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
     list.unshift('dread');   // the fortress arrives first
@@ -576,7 +580,7 @@ function waveComposition(n) {
   const sowers = n >= 8 ? Math.round(Math.min(Math.floor((n - 6) / 2), 3) * k) : 0;        // 8: 1, 10: 2 … up to 3
   const aegis = n >= 11 ? Math.round(Math.min(1 + Math.floor((n - 11) / 4), 2) * k) : 0;   // 11: 1, 15: 2
   for (let i = 0; i < raiders; i++) list.push('raider');
-  for (let i = 0; i < seekers; i++) list.push('seeker');
+  for (let i = 0; i < seekers; i++) list.push(seekerType(n));
   for (let i = 0; i < wardens; i++) list.push('warden');
   for (let i = 0; i < lancers; i++) list.push('lancer');
   for (let i = 0; i < sowers; i++) list.push('sower');
@@ -604,6 +608,7 @@ const NEW_CONTACT = {
   lancer: ['LANCER', 'IT CHARGES A BEAM · WHEN ITS GREEN AIM LINE FLASHES, THRUST ACROSS IT TO DODGE'],
   sower: ['SOWER', 'IT SEEDS PROXIMITY MINES ALONG ITS ORBIT · SHOOT THEM FROM A DISTANCE'],
   aegis: ['AEGIS', 'IT SHIELDS NEARBY SHIPS (−65% DAMAGE) · TAKE IT OUT FIRST'],
+  seeker2: ['SEEKER MK2', 'FASTER SEEKERS THAT HIT 50% HARDER · SHOOT THEM EARLY'],
 };
 function newContacts(queue) {
   const fresh = [];
@@ -680,9 +685,9 @@ function spawnEnemy(type) {
   const pilots = alivePilots();
   const ref = pilots.length ? pilots[Math.floor(Math.random() * pilots.length)].pos : player.pos;
   // about a third of the gunships spawn on the far side of the hole
-  const farSide = type !== 'seeker' && Math.random() < 0.35;
+  const farSide = !isSeekerType(type) && Math.random() < 0.35;
   for (let tries = 0; tries < 40; tries++) {
-    const r = type === 'seeker' ? rand(800, 1400) : rand(750, 1900);
+    const r = isSeekerType(type) ? rand(800, 1400) : rand(750, 1900);
     // mostly prograde, modest inclinations: orbital speeds are high, so a
     // retrograde or steeply inclined orbit would make for blink-and-miss passes
     const normal = new THREE.Vector3(rand(-0.3, 0.3), 1, rand(-0.3, 0.3)).normalize();
@@ -781,7 +786,7 @@ function bossLaunch(e, li, target = null, alert = true) {
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
-  const s = new Enemy('seeker', scene, game.wave - 1);
+  const s = new Enemy(seekerType(game.wave), scene, game.wave - 1);
   scaleEnemyHp(s);
   s.launched = true;
   s.noWreck = true;
@@ -863,7 +868,7 @@ function enemyFireFx(muzzle, vel, heavy) {
 const _q1Vec = new THREE.Vector3();
 
 const KILL_FX = {
-  raider: [1.15, [1.0, 0.42, 0.12]], warden: [1.8, [1.0, 0.35, 1.0]], seeker: [0.9, [1.0, 0.7, 0.15]],
+  raider: [1.15, [1.0, 0.42, 0.12]], warden: [1.8, [1.0, 0.35, 1.0]], seeker: [0.9, [1.0, 0.7, 0.15]], seeker2: [1.0, [1.0, 0.92, 0.4]],
   lancer: [1.2, [0.45, 1.0, 0.55]], sower: [1.7, [1.0, 0.55, 0.15]], aegis: [1.6, [0.6, 0.55, 1.0]],
   dread: [3.2, [1.0, 0.35, 0.2]],
 };
@@ -2284,7 +2289,7 @@ function physicsStep(h) {
       continue;
     }
     const d = e.pos.distanceTo(player.pos);
-    const seekerHit = e.type === 'seeker' && d < player.radius + e.radius + 2.5;
+    const seekerHit = e.def.seeker && d < player.radius + e.radius + 2.5;
     const bump = d < player.radius + e.radius * 0.8;
     if (!seekerHit && !bump) continue;
     // each pilot judges collisions with their own ship; the host decides the enemy's fate
@@ -2847,11 +2852,11 @@ function tick(rawDt, render) {
       if (player.overheated) warnings.push({ text: 'CANNONS OVERHEATED', color: 'orange' });
       if (player.hull < 30) warnings.push({ text: 'HULL CRITICAL', color: 'red' });
       let seekerNear = false;
-      for (const e of game.enemies) if (e.type === 'seeker' && e.pos.distanceTo(player.pos) < 140) seekerNear = true;
+      for (const e of game.enemies) if (e.def.seeker && e.pos.distanceTo(player.pos) < 140) seekerNear = true;
       // seekers closing on you: warn well before they arrive, beeping faster as they close
       let inbound = Infinity;
       for (const e of game.enemies) {
-        if (!e.alive || e.type !== 'seeker') continue;
+        if (!e.alive || !e.def.seeker) continue;
         const to = _v1.subVectors(player.pos, e.renderPos);
         const d = to.length();
         if (d > 1400 || d < 140) continue;
@@ -3117,7 +3122,7 @@ window.addEventListener('keydown', (e) => {
 // ===========================================================================
 const SNAPSHOT_INTERVAL = 1 / 20;
 const WORLD_INTERVAL = 1 / 10;
-const ENEMY_TYPES = ['raider', 'warden', 'seeker', 'dread', 'lancer', 'sower', 'mine', 'aegis'];
+const ENEMY_TYPES = ['raider', 'warden', 'seeker', 'dread', 'lancer', 'sower', 'mine', 'aegis', 'seeker2'];
 const mp = {
   epoch: 0, sendTimer: 0, worldTimer: 0, waveSyncTimer: 0, starting: false, pendingStart: false,
   players: new Map(),      // pilot id -> { name, ready }
