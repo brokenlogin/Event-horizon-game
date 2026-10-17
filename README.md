@@ -125,8 +125,9 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 
 - After each wave you get **2 minutes** before the next one. A countdown sits at the top of the screen, with alarms at 60, 30 and 10 seconds.
 - Destroyed ships leave **wrecks** on the orbit they died on. Fly within 75 m of one to salvage its scrap: raider 12, seeker 8, warden 35, lancer 20, sower 25, aegis 30, Dreadnought 150. Wrecks disappear after 2 minutes.
+- **Every run starts at Kepler Station:** your ship sits in its docking clamp (your own clamp in multiplayer), and the clamps release it after a couple of seconds (or press F to launch at once). The first wave arrives 10 s in (12 s in multiplayer).
 - **Kepler Station** holds a high orbit: 2,500 m at 145 m/s, a lap every ~1.8 minutes. That's a little slower than a free orbit up there (~167 m/s), so station-keeping thrusters burn continuously; you can see them firing toward the hole. Undocking puts you on the free orbit that matches its circle, so you drift gently ahead of it. It's marked in green. Get within 300 m of it while moving under 40 m/s relative to it and you dock automatically. When you're close, the HUD shows your range and relative speed, plus green markers for your velocity relative to the station; burn toward ⊗ to match its speed.
-- **Docking assist (B):** twice a second the autopilot simulates candidate plans against the station's future path (burn-and-coast transfers, and powered pursuits that fly straight at it or swing round the hole first) and flies whichever reaches docking range soonest while staying well clear of the hole. In tests it docked from the starting orbit in 20–43 s (31 s on average). The Dreadnought intercept uses the same planner.
+- **Docking assist (B):** twice a second the autopilot simulates candidate plans against the station's future path (burn-and-coast transfers, and powered pursuits that fly straight at it or swing round the hole first) and flies whichever reaches docking range soonest while staying well clear of the hole. In tests it docked from a 1,100 m combat orbit in 20–43 s (31 s on average). The Dreadnought intercept uses the same planner.
 - **Salvage drones:** spare missiles can collect scrap. Aim at a wreck and press E (a quicker, green lock), then Q. The drone scoops up the wreck and hops on to any others within 1.5 km. Any missile that passes through a wreck collects it.
 - While docked you can spend scrap on:
   - Cannon Overcharge: +25% cannon damage per level
@@ -144,7 +145,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 - The hole sits inside a dense nuclear cluster, modelled as a cored isothermal halo `Φ = ½·V0²·ln(r² + Rc²)`. Its pull falls off only as about 1/r, so gravity stays strong across the arena and nothing can escape.
 - The event horizon has a 150 m radius and blocks everything: bolts, missile locks and enemy fire. Use it as cover.
 - Past 3,200 m an outer gravity wall pulls with the square of the overshoot (about 60 m/s² at +300 m) and hauls everything back. There's no edge damage.
-- From the 1,100 m starting orbit, falling in takes about 10 s of continuous reverse thrust.
+- From a 1,100 m orbit, falling in takes about 10 s of continuous reverse thrust.
 - The player, enemies, every bolt and the explosion debris are all integrated with symplectic leapfrog. Steps are subdivided near the hole.
 - The cyan line is your predicted ballistic path, with periapsis and apoapsis marked.
 - The black hole is ray-marched. Light rays follow the Schwarzschild photon equation, which lenses the accretion disk and the stars, and the disk has Doppler beaming.

@@ -1234,6 +1234,7 @@ const RAIL_BASE_RANGE = 700, RAIL_COIL_RANGE = 300;   // Railgun Coils: +300 m a
 const railRange = () => RAIL_BASE_RANGE + RAIL_COIL_RANGE * (game.levels.railrange || 0);
 const RAIL_COOLDOWN = 4;
 const BOOST_TIME = 3, BOOST_COOLDOWN = 15;
+const LAUNCH_DELAY = 2.6;      // s in the clamps at the start of a run
 const AUTO_REARM_EVERY = 40;
 const RAIL_ASSIST = Math.cos(THREE.MathUtils.degToRad(4));   // snaps to a target this close to the crosshair
 const RAIL_PAD = 4;                                          // m added to every target's hit radius…
@@ -1651,6 +1652,7 @@ function finishDock() {
 
 function undock() {
   if (!player.docked) return;
+  game.launchT = 0;
   player.docked = false;
   player.needsClearance = true;
   station.releasePlayer(player);
@@ -1814,7 +1816,7 @@ function startGame(opts = {}) {
     difficulty: validDifficulty(multiplayer ? mp.difficulty : difficulty),
     custom: multiplayer ? { ...mp.custom } : { ...customDiff },
     // in multiplayer the host runs the waves; guests follow its clock
-    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 8 : 4, waveActive: false,
+    score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 12 : 10, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
     scrap: 0, scrapTotal: 0, levels: newUpgradeLevels(), underAttack: 0,
   });
@@ -1842,6 +1844,14 @@ function startGame(opts = {}) {
   mp.deadIds.clear();
   station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // thruster-held, a little under orbital speed
   if (multiplayer) syncStation();
+  // every run starts in your own docking clamp at Kepler Station, and launches from it
+  station.beginDock(player, myClamp());
+  station.dockAnim = 1;
+  station.holdPlayer(player, 0);
+  player.docked = true;
+  player.docking = false;
+  dockCam.init = false;   // the station camera swoops in from wherever the menu left it
+  game.launchT = LAUNCH_DELAY;
   radar.setStationOrbit(station);
   clearRemotes();
   shipParts.group.visible = true;
@@ -1851,7 +1861,7 @@ function startGame(opts = {}) {
   hud.show(true);
   hud.clearPopups();
   if (multiplayer) hud.banner('LINK ESTABLISHED', `${pilotCount()} PILOTS · HOSTILES SCALED ×${enemyScale().toFixed(2)} · CLICK TO TAKE THE CONTROLS`, 3500);
-  else hud.banner('ORBIT ESTABLISHED', 'HOSTILES APPROACHING · STAND BY', 2400);
+  else hud.banner('KEPLER STATION', 'CLAMPS RELEASING · HOSTILES APPROACHING', 2400);
   state = 'playing';
   setOverlay(null);
   document.body.style.cursor = 'none';
@@ -2728,6 +2738,8 @@ function tick(rawDt, render) {
       }
       if (player.alive) updateShields(dt);
       updateAbilities(dt);
+      // the launch at the start of a run: the clamps let go by themselves (F goes sooner)
+      if (game.launchT > 0 && (game.launchT -= rawDt) <= 0 && player.docked) undock();
     }
     // enemy AI runs only on the host (or solo); each enemy hunts the nearest pilot
     if (!isGuest()) for (const e of game.enemies) if (e.alive) e.think(dt, targetFor(e), game);
