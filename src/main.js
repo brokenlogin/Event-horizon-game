@@ -1617,7 +1617,7 @@ function callNextWave() {
   if (!(state === 'playing' || game.mp) || game.waveActive || game.waveTimer <= 6) return;
   if (isGuest()) { net.sendEvent({ k: 'callWave' }); hud.notice('ASKED THE HOST TO CALL THE NEXT WAVE', 'orange'); return; }
   game.waveTimer = 6;
-  hud.notice('NEXT WAVE CALLED IN', 'orange');
+  hud.notice('BEACON ACTIVE', 'orange');
   if (game.mp) mp.waveSyncTimer = 0;   // tell everyone right away
 }
 
