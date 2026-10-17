@@ -654,7 +654,8 @@ function spawnBoss(e) {
   e.vel.copy(vel);
   e.setOrbit(BOSS_ORBIT, normal);
   // tougher with each appearance, and with every extra pilot
-  const appearance = Math.max(1, Math.round(game.wave / BOSS_EVERY));
+  const appearance = bossAppearance();
+  e.appearance = appearance;
   const grow = 1 + 0.3 * (appearance - 1);
   e.maxHp = e.hp = Math.round(e.def.hp * enemyScale() * grow * diffDef().hp);
   const turretHp = e.def.turret.hp * (1 + 0.5 * (pilotCount() - 1)) * grow * diffDef().hp;
@@ -676,8 +677,13 @@ function bossWarpFx(e) {
   audio.warp();
 }
 
+/** Which appearance of the dreadnought this is (1st, 2nd …), from the wave number. */
+const bossAppearance = (wave = game.wave) => Math.max(1, Math.round(wave / BOSS_EVERY));
+/** Later fortresses carry more guns: 6, 8, 10, then 12 turrets. */
+const bossTurretCount = (wave) => Math.min(12, 6 + 2 * (bossAppearance(wave) - 1));
+
 function spawnEnemy(type) {
-  const e = new Enemy(type, scene, game.wave - 1);
+  const e = new Enemy(type, scene, game.wave - 1, undefined, type === 'dread' ? bossTurretCount() : undefined);
   scaleEnemyHp(e);
   if (e.def.boss) { spawnBoss(e); return; }
   const pos = new THREE.Vector3(), vel = new THREE.Vector3();
@@ -768,21 +774,25 @@ function turretFire(e, t) {
  */
 function bossVolley(e) {
   const n = e.built.launchers.length;
+  const extra = Math.min(3, (e.appearance || 1) - 1);   // later fortresses add a seeker a volley (up to 3)
   if (!game.mp) {
+    const size = n + extra;
     let any = false;
-    for (let i = 0; i < n; i++) any = bossLaunch(e, i, null, i === 0) || any;
+    for (let i = 0; i < size; i++) any = bossLaunch(e, i % n, null, i === 0, Math.floor(i / n), size) || any;
     return any;
   }
   const reach = (e.def.launchRange || 1800) * 1.5;
   let targets = alivePilots().filter((p) => !p.docked && !p.docking && p.pos.distanceTo(e.pos) < reach);
   if (!targets.length) targets = [nearestPilot(e.pos)];
+  // one at each pilot, then the extras shared round the pilots in turn
+  const size = targets.length + extra;
   let any = false;
-  targets.forEach((p, i) => { any = bossLaunch(e, i % n, p, i === 0) || any; });
+  for (let i = 0; i < size; i++) any = bossLaunch(e, i % n, targets[i % targets.length], i === 0, Math.floor(i / n), size) || any;
   return any;
 }
 
-function bossLaunch(e, li, target = null, alert = true) {
-  const cap = game.mp ? 2 * pilotCount() : 4;   // two volleys' worth in flight at most
+function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2) {
+  const cap = 2 * volley;   // two volleys' worth in flight at most
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
@@ -793,7 +803,8 @@ function bossLaunch(e, li, target = null, alert = true) {
   s.assigned = target;
   const fwd = forwardOf(e.quat, _v3);
   s.pos.copy(e.built.launchers[li]).applyQuaternion(e.quat).add(e.pos);
-  s.vel.copy(e.vel).addScaledVector(fwd, 45);
+  if (stagger) s.pos.addScaledVector(_v1.set(0, 1, 0).applyQuaternion(e.quat), (stagger % 2 ? 4 : -4) * Math.ceil(stagger / 2)).addScaledVector(fwd, -3 * stagger);   // extras clear of the first pair
+  s.vel.copy(e.vel).addScaledVector(fwd, 45 - 4 * stagger);
   s.quat.copy(e.quat);
   s.age = 0.8;             // skip most of the warm-up: it comes out hot
   s.spawnFx = 0.6;
@@ -3204,7 +3215,7 @@ function sendWorld(dt) {
       const row = [e.netId, ENEMY_TYPES.indexOf(e.type), ...r2(e.pos), ...r2(e.vel), ...r2(e.thrust),
         round2(q.x), round2(q.y), round2(q.z), round2(q.w), Math.round(e.hp * 100) / 100, round2(e.throttle)];
       // the dreadnought also reports its full health and which turrets still stand
-      if (e.turrets) row.push(e.maxHp, e.turrets.reduce((mask, t, i) => mask | (t.alive ? 1 << i : 0), 0), Math.round(e.charge * 1000) / 1000);
+      if (e.turrets) row.push(e.maxHp, e.turrets.reduce((mask, t, i) => mask | (t.alive ? 1 << i : 0), 0), Math.round(e.charge * 1000) / 1000, e.turrets.length);
       else if (e.def.weapon === 'beam') row.push(Math.round(e.charge * 1000) / 1000);   // lancer: how far into its charge
       list.push(row);
     }
@@ -3235,7 +3246,7 @@ function applyEnemySnapshot(msg) {
     _snap.ch = type === 'lancer' ? row[17] || 0 : type === 'dread' ? row[19] || 0 : 0;
     let e = game.enemies.find((x) => x.netId === id);
     if (!e) {
-      e = new Enemy(type, scene, Math.max(0, game.wave - 1), id);
+      e = new Enemy(type, scene, Math.max(0, game.wave - 1), id, type === 'dread' ? row[20] || bossTurretCount() : undefined);
       e.maxHp = e.def.hp * diffDef().hp;   // for health bars (the dreadnought's comes in the snapshot)
       e.proxy = true;
       e.applyNet(_snap, now);

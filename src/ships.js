@@ -584,7 +584,7 @@ export function buildAegis() {
 // each covering its own side of the hull. Built in metres, nose along -Z,
 // local +Y is "up" (the orbit normal).
 // ---------------------------------------------------------------------------
-export function buildDreadnought() {
+export function buildDreadnought(turretCount = 6) {
   const group = new THREE.Group();
   const model = new THREE.Group();
   group.add(model);
@@ -695,12 +695,14 @@ export function buildDreadnought() {
     ringPivot.add(pod);
   }
 
-  // --- six turrets, each covering its own face of the hull ---
+  // --- turrets, each covering its own face of the hull: six, and later fortresses add
+  // pairs on the rear flanks, mid top/bottom and forward flanks (up to twelve) ---
   const barrelGeo = new THREE.CylinderGeometry(0.45, 0.55, 7, 8).rotateX(Math.PI / 2);
   const turrets = [];
   const mounts = [
     [0, 1, 0, -16], [0, 1, 0, 20], [0, -1, 0, -16], [0, -1, 0, 20], [1, 0, 0, -14], [-1, 0, 0, -14],
-  ];
+    [1, 0, 0, 22], [-1, 0, 0, 22], [0, 1, 0, -7], [0, -1, 0, -7], [1, 0, 0, -25], [-1, 0, 0, -25],
+  ].slice(0, Math.max(6, Math.min(12, turretCount)));
   for (const [nx, ny, nz, z] of mounts) {
     const normal = new THREE.Vector3(nx, ny, nz);
     const surface = Math.abs(ny) > 0 ? 13 : 14.6;

@@ -46,7 +46,7 @@ export const ENEMY_DEFS = {
     weapon: 'none', support: true, shieldRange: 260, shieldMult: 0.35,
     score: 300, trailColor: 0x7a6bff, build: buildAegis,
   },
-  // boss: an orbital fortress that holds one low orbit, defended by six turrets and a seeker launcher
+  // boss: an orbital fortress that holds one low orbit, defended by six turrets (up to twelve on later appearances) and a seeker launcher
   dread: {
     boss: true, hp: 200, accel: 32, turn: 0.4, score: 3000, trailColor: 0xff2a3c, build: buildDreadnought,
     // hunts the nearest pilot: closes at up to `approach` m/s and settles about `standoff` m away.
@@ -117,7 +117,7 @@ let nextNetId = 1;
 export function resetEnemyIds() { nextNetId = 1; }
 
 export class Enemy {
-  constructor(type, scene, difficulty, netId) {
+  constructor(type, scene, difficulty, netId, turretCount) {
     this.type = type;
     this.def = ENEMY_DEFS[type];
     this.difficulty = difficulty;
@@ -153,7 +153,7 @@ export class Enemy {
     this.leadFactor = 1;
     this.rollAim();
 
-    const built = this.def.build();
+    const built = this.def.boss ? this.def.build(turretCount) : this.def.build();
     this.built = built;
     this.mesh = built.group;
     this.radius = built.radius;
