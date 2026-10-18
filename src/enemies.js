@@ -35,7 +35,7 @@ export const ENEMY_DEFS = {
   // wave 8+: an armoured mine-layer; its mines drift along its orbit
   sower: {
     hp: 8, accel: 18, turn: 0.9, engageRange: 1100, preferred: 420, approach: 25,
-    weapon: 'mines', mineEvery: [3.5, 5], mineRange: 1000, maxMines: 6,
+    weapon: 'mines', mineEvery: [1.6, 2.4], mineRange: 1000, maxMines: 16,
     score: 300, trailColor: 0xff8a2a, build: buildSower,
   },
   mine: {

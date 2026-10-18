@@ -1109,7 +1109,11 @@ function lancerFire(e) {
   if (game.mp) net.sendEvent({ k: 'beam', t: simNow(), p: r2(origin), d: [dir.x, dir.y, dir.z].map((x) => Math.round(x * 1e5) / 1e5), l: Math.round(len), dmg: e.def.beamDmg, b: boss ? 1 : 0 });
 }
 
-/** A sower drops a mine behind it (host / solo); capped per sower. */
+/**
+ * A sower flings a mine out behind it (host / solo); capped per sower. Each one gets a
+ * sideways kick in a random direction across the sower's path, so it ends up on its own
+ * slightly different orbit and the field fans out instead of trailing in a line.
+ */
 function layMine(s) {
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.owner === s.netId) out++;
@@ -1119,9 +1123,10 @@ function layMine(s) {
   m.owner = s.netId;
   const back = forwardOf(s.quat, _v1).negate();
   m.pos.copy(s.pos).addScaledVector(back, 6);
-  m.vel.copy(s.vel).addScaledVector(back, 5);
+  m.vel.copy(s.vel).addScaledVector(back, 4);
   randDir(_v2);
-  m.vel.addScaledVector(_v2, 1.5);
+  _v2.addScaledVector(back, -_v2.dot(back)).normalize();   // across the sower's path
+  m.vel.addScaledVector(_v2, rand(10, 22));
   m.mesh.position.copy(m.pos);
   m.mesh.scale.setScalar(0.3);
   m.spawnFx = 0.7;
