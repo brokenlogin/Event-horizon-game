@@ -258,13 +258,11 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
   const mNose = new THREE.ConeGeometry(0.1, 0.34, 8).rotateX(-Math.PI / 2);
   const mRing = new THREE.CylinderGeometry(0.104, 0.104, 0.06, 8).rotateX(Math.PI / 2);
   const mFin = new THREE.BoxGeometry(0.02, 0.26, 0.22);
-  const slotX = [0.82, 1.22, 1.62, 2.3];
-  for (let i = 0; i < slotX.length * 2; i++) {
-    const s = i % 2 === 0 ? 1 : -1;
-    const x = slotX[Math.floor(i / 2)] * s;
-    const zMid = -0.5 + 0.63 * (Math.abs(x) - 0.25) + 0.75;   // a little behind the leading edge
+  // six under the wings (inside the guns and the MK2's wingtip engines), then the belly:
+  // one on the centreline, or a side-by-side pair when the rack holds eight (see setLoadout)
+  const makePylon = (x, y, z) => {
     const pylon = new THREE.Group();
-    pylon.position.set(x, -0.04, zMid);
+    pylon.position.set(x, y, z);
     model.add(pylon);
     const rail = new THREE.Mesh(pylonGeo, dark);
     rail.position.y = -0.08;
@@ -287,8 +285,16 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
     }
     pylon.add(missile);
     pylon.visible = false;
-    pylons.push({ pylon, missile, local: new THREE.Vector3(x, -0.31, zMid) });
+    return { pylon, missile, local: new THREE.Vector3(x, y - 0.27, z) };
+  };
+  for (const ax of [0.82, 1.22, 1.62]) {
+    for (const s of [1, -1]) {
+      const zMid = -0.5 + 0.63 * (ax - 0.25) + 0.75;   // a little behind the leading edge
+      pylons.push(makePylon(s * ax, -0.04, zMid));
+    }
   }
+  // belly: behind the railgun's barrel, clear below the engines
+  const belly = { centre: makePylon(0, -0.26, 0.95), right: makePylon(0.2, -0.26, 0.95), left: makePylon(-0.2, -0.26, 0.95) };
 
   // nav lights
   const navL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: hdr(0xff2030, 4) }));
@@ -298,7 +304,7 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
   model.add(navL, navR);
 
   return {
-    group, model, flames, navLights: [navL, navR], mk2, rail, pylons, cockpitHide,
+    group, model, flames, navLights: [navL, navR], mk2, rail, pylons, belly, activePylons: pylons.concat(belly.centre), cockpitHide,
     railMuzzle: new THREE.Vector3(0, -0.32, -3.1),
     muzzles: [new THREE.Vector3(2.0, -0.08, -1.0), new THREE.Vector3(-2.0, -0.08, -1.0)],
     engines: [new THREE.Vector3(0.52, 0, 2.4), new THREE.Vector3(-0.52, 0, 2.4)],
@@ -307,12 +313,19 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
 
 /** Show a pylon for each missile the ship can carry and a missile on each loaded one. */
 export function setLoadout(parts, capacity, ammo) {
-  parts.pylons.forEach((p, i) => {
-    const show = i < capacity;
+  // the seventh hangs on the centreline; with eight, the last two share the belly side by side
+  const pair = capacity >= 8;
+  const list = parts.activePylons;
+  list.length = parts.pylons.length;
+  if (pair) list.push(parts.belly.right, parts.belly.left);
+  else list.push(parts.belly.centre);
+  for (const p of [...parts.pylons, parts.belly.centre, parts.belly.right, parts.belly.left]) {
+    const i = list.indexOf(p);
+    const show = i >= 0 && i < capacity;
     if (p.pylon.visible !== show) p.pylon.visible = show;
-    const loaded = i < ammo;
+    const loaded = show && i < ammo;
     if (p.missile.visible !== loaded) p.missile.visible = loaded;
-  });
+  }
 }
 
 // ---------------------------------------------------------------------------

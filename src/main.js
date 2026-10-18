@@ -1180,7 +1180,7 @@ const missiles = new MissileSystem({
   explode, hitEnemy, damagePlayer,
   // missiles leave from the pylon they were hanging on (the outermost loaded one)
   launchPos: (slot, out) => {
-    const p = shipParts.pylons[slot];
+    const p = shipParts.activePylons[slot];
     return p ? out.copy(p.local).applyQuaternion(player.quat).add(player.pos) : null;
   },
 });
