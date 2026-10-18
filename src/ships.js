@@ -186,6 +186,17 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
     const cowl = zCyl(0.16, 0.16, 0.5, 12, hull);
     cowl.position.set(s * 2.5, -0.04, 0.35);
     mk2.add(cowl);
+    // intake at the front of the cowl: a gold lip, a dark throat and a shock cone spiking forward
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.022, 6, 18), gold);
+    lip.position.set(s * 2.5, -0.04, 0.1);
+    mk2.add(lip);
+    const throat = new THREE.Mesh(new THREE.CircleGeometry(0.14, 18), dark);
+    throat.rotation.y = Math.PI;   // faces forward (-Z)
+    throat.position.set(s * 2.5, -0.04, 0.095);
+    mk2.add(throat);
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5, 14).rotateX(-Math.PI / 2), hull);
+    spike.position.set(s * 2.5, -0.04, 0.13 - 0.25);
+    mk2.add(spike);
     const nring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.025, 6, 16), gold);
     nring.position.set(s * 2.5, -0.04, 1.86);
     mk2.add(nring);
