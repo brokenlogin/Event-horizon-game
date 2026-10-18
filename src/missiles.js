@@ -68,6 +68,7 @@ export class MissileSystem {
     this.rangeBonus = 0;                 // m of extra lock range, also from Missile Boosters
     this.lockTimeMult = 1;               // MK2 Quick Lock
     this.cluster = false;                // MK2 Cluster Warheads: wider, harder blasts
+    this.payload = 0;                    // MK2 Missile Payload levels: +30 m blast, +30% damage each
     this.ammo = MISSILES_PER_WAVE;
     this.lockState = 'idle';  // idle | locking | locked
     this.lockKind = 'enemy';  // enemy | salvage
@@ -326,15 +327,16 @@ export class MissileSystem {
   _detonate(m, direct, fizzle) {
     if (!m.alive) return;
     const { explode, audio, player, hitEnemy, damagePlayer } = this.ctx;
-    explode(m.pos, m.vel, fizzle ? 0.7 : 1.2, [1.0, 0.6, 0.25]);
+    explode(m.pos, m.vel, fizzle ? 0.7 : 1.2 + 0.25 * this.payload, [1.0, 0.6, 0.25]);   // bigger payloads, bigger fireballs
     const dist = m.pos.distanceTo(player.pos);
     audio.explosion(fizzle ? 0.7 : 1.3, THREE.MathUtils.clamp(1.4 - dist / 700, 0.15, 1));
     if (!fizzle) {
       for (const e of this.ctx.enemies()) {
         if (!e.alive) continue;
-        if (e === direct) { hitEnemy(e, DAMAGE, m.pos, 'missile'); continue; }
+        const boost = 1 + 0.3 * this.payload;
+        if (e === direct) { hitEnemy(e, DAMAGE * boost, m.pos, 'missile'); continue; }
         const d = e.pos.distanceTo(m.pos);
-        if (d < SPLASH_RADIUS * (this.cluster ? 2 : 1)) hitEnemy(e, SPLASH_DAMAGE * (this.cluster ? 2.5 : 1), e.pos, 'missile');
+        if (d < SPLASH_RADIUS * (this.cluster ? 2 : 1) + 30 * this.payload) hitEnemy(e, SPLASH_DAMAGE * (this.cluster ? 2.5 : 1) * boost, e.pos, 'missile');
       }
       if (player.alive && dist < SPLASH_RADIUS) damagePlayer(10, { cause: 'CAUGHT IN YOUR OWN BLAST' });
     }

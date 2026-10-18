@@ -1674,6 +1674,7 @@ function applyUpgrades() {
   player.maxShield = SHIELD_MAX + 50 * (lv.shieldcap || 0);
   missiles.lockTimeMult = lv.quicklock ? 0.6 : 1;
   missiles.cluster = !!lv.cluster;
+  missiles.payload = lv.payload || 0;
   dockAssist.maxAccel = MAIN_THRUST * thrustMult(false);
   // the MK2 hull, and the railgun under the nose once it's fitted
   shipParts.mk2.visible = !!lv.mk2;
@@ -2234,8 +2235,9 @@ function updatePlayerControl(dt) {
   // --- target lock & lead ---
   lockInfo.enemy = null;
   lockInfo.assist = false;
-  let bestDot = Math.cos(THREE.MathUtils.degToRad(18));
   const smart = smartAmmo();
+  const smart2 = (game.levels.smartammo || 0) >= 2;   // Smart Ammo II: a much stronger assist
+  let bestDot = Math.cos(THREE.MathUtils.degToRad(smart2 ? 24 : 18));
   const reach = smart ? 1500 : 900;
   for (const e of game.enemies) {
     if (!e.alive) continue;
@@ -2260,7 +2262,7 @@ function updatePlayerControl(dt) {
       t = lockInfo.aim.distanceTo(player.pos) / speed;
     }
     const aimDir = _v1.subVectors(lockInfo.aim, player.pos).normalize();
-    lockInfo.assist = aimDir.dot(fwd) > Math.cos(smart ? 0.09 : 0.045);
+    lockInfo.assist = aimDir.dot(fwd) > Math.cos(smart2 ? 0.16 : smart ? 0.09 : 0.045);
   }
 
   // --- weapons ---

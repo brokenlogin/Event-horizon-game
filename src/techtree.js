@@ -39,14 +39,15 @@ chain('weapons', 2, 3, 'heatsink', 'HEAT SINKS', '−20% cannon heat per shot', 
 chain('weapons', 1, 4, 'railgun', 'RAILGUN', 'Ability: hold RIGHT MOUSE to charge, release to fire a hypervelocity slug down your sights (700 m; Railgun Coils extend it). Each shot costs 8 scrap', [250], ['damage4'], 'ability');
 chain('weapons', 1, 5, 'railrange', 'RAILGUN COILS', '+300 m railgun range and lock range (700 m base, 2.2 km fully upgraded)', [120, 170, 230, 300, 380], ['railgun1']);
 chain('weapons', 2, 5, 'railecon', 'SLUG FOUNDRY', 'Railgun shots cost 1 scrap less (8 base, 4 fully upgraded)', [100, 150, 210, 280], ['railgun1']);
-chain('weapons', 3, 6, 'railcap', 'CAPACITOR BANK', 'Railgun charges 40% faster', [180], ['railgun1']);
-chain('weapons', 3, 7, 'railpierce', 'PIERCING SLUG', 'Railgun shots punch through every target in their path', [220], ['railgun1']);
-chain('weapons', 3, 5, 'smartammo', 'SMART AMMO', 'Cannon bolts fly 25% faster and 40% farther (about 1.4 km); a wider aim assist that also allows for gravity on long shots', [260], ['damage5', 'heatsink2']);
+chain('weapons', 3, 7, 'railcap', 'CAPACITOR BANK', 'Railgun charges 40% faster', [180], ['railgun1']);
+chain('weapons', 3, 8, 'railpierce', 'PIERCING SLUG', 'Railgun shots punch through every target in their path', [220], ['railgun1']);
+chain('weapons', 3, 5, 'smartammo', 'SMART AMMO', 'I: cannon bolts fly 25% faster and 40% farther (about 1.4 km), with a wider aim assist that also allows for gravity on long shots. II: the aim assist snaps on from about twice as far off the crosshair', [260, 600], ['damage5', 'heatsink2']);
 // --- missiles ---
 chain('missiles', 0, 0, 'missileCap', 'MISSILE RACKS', '+1 missile carried per wave', [40, 80, 130, 190, 260]);
 chain('missiles', 1, 0, 'missileSpeed', 'MISSILE BOOSTERS', '+30% missile thrust and speed, +200 m lock range', [35, 70, 120, 180]);
 chain('missiles', 2, 1, 'quicklock', 'QUICK LOCK', 'Missile locks complete 40% faster', [120], ['missileCap1']);
 chain('missiles', 2, 2, 'cluster', 'CLUSTER WARHEADS', 'Missile blasts are twice as wide and hit 2.5× harder around the target', [160], ['missileSpeed2']);
+chain('missiles', 3, 0, 'payload', 'MISSILE PAYLOAD', '+30 m missile blast radius and +30% missile damage (direct hits and blast)', [90, 150, 220, 300, 400]);
 chain('missiles', 1, 4, 'autorearm', 'AUTO-REARM', 'Rebuilds a missile every 40 s, up to your rack capacity', [200], ['missileCap4']);
 // --- defense ---
 chain('defense', 0, 0, 'hull', 'HULL PLATING', '+25 maximum hull', [35, 70, 110, 160, 220, 300]);
