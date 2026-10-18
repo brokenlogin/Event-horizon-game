@@ -2256,6 +2256,14 @@ function updateShields(dt) {
   }
 }
 
+/** In the cockpit the dashboard screens show shields, hull, heat and missiles, so the status panel goes. */
+let cockpitHud = false;
+function setCockpitHud(on) {
+  if (on === cockpitHud) return;
+  cockpitHud = on;
+  document.body.classList.toggle('fpv', on);
+}
+
 function updatePlayerVisual(dt, time) {
   const g = shipParts.group;
   g.position.copy(player.pos);
@@ -2263,6 +2271,7 @@ function updatePlayerVisual(dt, time) {
   setLoadout(shipParts, missiles.capacity, missiles.ammo);
   const model = shipParts.model;
   const inside = firstPerson() && player.alive && !player.docked;   // the cockpit camera sits inside the hull
+  setCockpitHud(inside);
   for (const m of shipParts.cockpitHide) m.visible = !inside;
   cockpit.group.visible = inside;
   const lx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
@@ -2883,6 +2892,7 @@ function tick(rawDt, render) {
     }
 
     // visuals
+    if (!player.alive) setCockpitHud(false);
     if (player.alive) updatePlayerVisual(dt, visualTime);
     else for (const t of playerTrails) t.update(dt, player.pos, camera.position, Math.max(0, 0.5 - game.deathTimer));
     for (const e of game.enemies) e.updateVisual(dt, camera.position, visualTime);

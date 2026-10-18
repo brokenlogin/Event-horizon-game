@@ -69,6 +69,7 @@ html, body {
 .tel-state.bad { color: var(--red); border-color: rgba(255, 77, 97, 0.6); animation: blink 0.5s steps(2) infinite; }
 
 #status { bottom: 20px; left: 20px; width: 300px; }
+body.fpv #status { display: none; }   /* first person: it's on the cockpit screens */
 .bar-row { display: flex; align-items: center; gap: 12px; margin: 5px 0; }
 .bar-row .label { width: 66px; }
 .bar { flex: 1; height: 9px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(94, 242, 255, 0.15); position: relative; overflow: hidden; transform: skewX(-20deg); }
