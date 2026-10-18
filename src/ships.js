@@ -201,9 +201,18 @@ export function buildPlayerShip({ accentColor = 0x5ef2ff, flameColor = 0x3fb8ff 
     nring.position.set(s * 2.5, -0.04, 1.86);
     mk2.add(nring);
     addFlame(mk2, s * 2.5, -0.04, 1.88, 0.15, flameColor, flames);
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 2.2), gold);
-    trim.position.set(s * 0.34, 0.25, -0.3);
-    trim.rotation.y = s * -0.05;
+    // trim strip laid along the fuselage's skin: the hull is a cone (radius 0.12 at the
+    // nose, z −2.3, to 0.62 at z 1.9) squashed to 0.55 high, so a line at a fixed angle
+    // round it is straight
+    const hullAt = (z, phi, out) => {
+      const r = 0.12 + 0.5 * (z + 2.3) / 4.2 + 0.012;   // just proud of the skin
+      return out.set(s * r * Math.sin(phi), 0.55 * r * Math.cos(phi), z);
+    };
+    const tA = hullAt(-1.45, 0.82, new THREE.Vector3()), tB = hullAt(0.85, 0.82, new THREE.Vector3());
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.03, 1), gold);
+    trim.position.copy(tA).add(tB).multiplyScalar(0.5);
+    trim.scale.z = tA.distanceTo(tB);
+    trim.lookAt(tB);   // (the group has no transform yet, so this is the local direction)
     mk2.add(trim);
     cockpitHide.push(trim);   // runs right beside the canopy: a glare strip from inside
     const canard = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.04, 0.32), hull);
