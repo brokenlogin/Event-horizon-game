@@ -305,6 +305,7 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyN') callNextWave();
     if (e.code === 'KeyB') toggleDockAssist();
     if (e.code === 'KeyR' && !inDock) useAfterburner();
+    if (e.code === 'KeyY' && !inDock) useJumpDrive();
     if (e.code === 'Comma') changeWarp(-1);
     if (e.code === 'Period') changeWarp(1);
   }
@@ -1285,8 +1286,62 @@ function payRailShot() {
 }
 
 function resetAbilities() {
-  Object.assign(game, { boostT: 0, boostCd: 0, railCd: 0, railCharge: 0, rearmT: 0, emergencyUsed: false, railTick: 0 });
+  Object.assign(game, { boostT: 0, boostCd: 0, railCd: 0, railCharge: 0, rearmT: 0, emergencyUsed: false, railTick: 0, jumpCd: 0 });
   railHeld = false;
+}
+
+// Jump Drive (Y): coast the current orbit forward under the real gravity until it has
+// swept halfway round the hole, and put the ship there with the velocity it would have.
+const JUMP_COOLDOWN = 45;
+const JUMP_MAX_T = 900;   // s of coasting to search (well past any orbit in the arena)
+const _jp = new THREE.Vector3(), _jv = new THREE.Vector3(), _jn = new THREE.Vector3(), _jprev = new THREE.Vector3(), _jc = new THREE.Vector3();
+/** Where half an orbit takes the ship: { pos, vel, angle } in _jp/_jv, or a reason string it can't. */
+function jumpSolution() {
+  _jp.copy(player.pos); _jv.copy(player.vel);
+  _jn.crossVectors(_jp, _jv);
+  if (_jn.lengthSq() < 1e-6) return 'NO ORBIT';
+  _jn.normalize();
+  let swept = 0;
+  for (let t = 0; t < JUMP_MAX_T;) {
+    const h = _jp.length() < 900 ? 1 / 240 : 1 / 30;   // finer steps on a fast pass near the hole
+    t += h;
+    _jprev.copy(_jp);
+    if (!integrate(_jp, _jv, null, h)) return 'ORBIT FALLS INTO THE HOLE';
+    const r = _jp.length();
+    if (r < RS * 2) return 'ORBIT FALLS INTO THE HOLE';
+    if (r > ARENA_RADIUS * 2.5) return 'NOT IN ORBIT';
+    swept += Math.atan2(_jc.crossVectors(_jprev, _jp).dot(_jn), _jprev.dot(_jp));
+    if (swept >= Math.PI) return null;
+  }
+  return 'ORBIT TOO SLOW';
+}
+
+function useJumpDrive() {
+  if (!game.levels.jumpdrive || player.docked || player.docking || !player.alive) return;
+  if (game.jumpCd > 0) { hud.notice(`JUMP DRIVE RECHARGING · ${Math.ceil(game.jumpCd)} s`, 'dim'); return; }
+  const why = jumpSolution();
+  if (why) { hud.notice(`JUMP DRIVE · ${why}`, 'red'); audio.beep(220, 0.15, 0.06, 'square'); return; }
+  jumpFx(player.pos, player.vel);
+  // turn the ship (and camera) with the orbit, so it faces the same way relative to its path
+  _q1.setFromAxisAngle(_jn, Math.PI);
+  player.quat.premultiply(_q1);
+  camQuat.premultiply(_q1);
+  player.pos.copy(_jp);
+  player.vel.copy(_jv);
+  for (const t of playerTrails) t.reset(player.pos);
+  jumpFx(player.pos, player.vel);
+  dockAssist.disengage();
+  game.jumpCd = JUMP_COOLDOWN;
+  game.trauma = Math.min(1, game.trauma + 0.5);
+  hud.notice('JUMP COMPLETE');
+  audio.beep(300, 0.25, 0.08, 'sawtooth');
+  setTimeout(() => audio.beep(1400, 0.2, 0.06, 'sine'), 120);
+}
+function jumpFx(pos, vel) {
+  for (let i = 0; i < 90; i++) {
+    randDir(_v1);
+    particles.emit(pos.x, pos.y, pos.z, vel.x + _v1.x * 40, vel.y + _v1.y * 40, vel.z + _v1.z * 40, 0.35, 0.9, 1.6, 1.6, 2.2, 0.6, false);
+  }
 }
 
 function useAfterburner() {
@@ -1354,6 +1409,7 @@ function updateAbilities(dt) {
   const lv = game.levels;
   game.boostT = Math.max(0, game.boostT - dt);
   game.boostCd = Math.max(0, game.boostCd - dt);
+  game.jumpCd = Math.max(0, game.jumpCd - dt);
   game.railCd = Math.max(0, game.railCd - dt);
   if (lv.autorearm && player.alive && missiles.ammo < missiles.capacity) {
     game.rearmT += dt;
@@ -1388,6 +1444,10 @@ function updateAbilityHud() {
   if (lv.afterburner) {
     const state = game.boostT > 0 ? '<b>ACTIVE</b>' : game.boostCd > 0 ? `<em>${Math.ceil(game.boostCd)} s</em>` : 'READY';
     html += `<div class="ab boost"><span>AFTERBURNER <kbd>R</kbd></span>${state}</div>`;
+  }
+  if (lv.jumpdrive) {
+    const state = game.jumpCd > 0 ? `<em>${Math.ceil(game.jumpCd)} s</em>` : 'READY';
+    html += `<div class="ab boost"><span>JUMP DRIVE <kbd>Y</kbd></span>${state}</div>`;
   }
   if (abilitiesEl._html !== html) { abilitiesEl._html = html; abilitiesEl.innerHTML = html; }
   // bracket on whatever the railgun will snap to

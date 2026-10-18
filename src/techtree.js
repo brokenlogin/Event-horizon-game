@@ -60,6 +60,7 @@ chain('engineering', 0, 0, 'thrusters', 'THRUSTER TUNING', '+15% engine power', 
 chain('engineering', 0, 2, 'afterburner', 'AFTERBURNER', 'Ability: press R for 3 s of double engine power (15 s cooldown)', [200], ['thrusters2'], 'ability');
 chain('engineering', 1, 0, 'magnet', 'SALVAGE MAGNET', '+50% salvage pickup range', [80, 140]);
 chain('engineering', 1, 2, 'refinery', 'SCRAP REFINERY', '+20% scrap from every wreck', [150, 250], ['magnet2']);
+chain('engineering', 0, 5, 'jumpdrive', 'JUMP DRIVE', 'Ability: press Y to jump to the opposite point of your orbit, halfway round the hole, keeping the speed you would have there (45 s cooldown)', [650], ['afterburner1', 'refinery2'], 'ability');
 
 export const TECH = nodes;
 export const TECH_BY_ID = Object.fromEntries(nodes.map((n) => [n.id, n]));

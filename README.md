@@ -16,7 +16,7 @@ To use a different port: `./serve.sh 8080`.
 
 Once **Missile Racks** and **Hull Plating** are both maxed, the station's upgrade list offers **UPGRADE TO MK2 SHIP** for 300 scrap (crew-priced in multiplayer, and shared like every upgrade). The MK2 has **+50% engine power** and a refitted look (wingtip nacelles, gold trim), and it keeps every upgrade you've bought.
 
-After that, the upgrade list is replaced by the **MK2 tech tree**: 62 nodes in four branches. Your existing upgrades are the first tiers of their chains. Click a node to see what it does and what it needs, then **BUY**.
+After that, the upgrade list is replaced by the **MK2 tech tree**: 63 nodes in four branches. Your existing upgrades are the first tiers of their chains. Click a node to see what it does and what it needs, then **BUY**.
 
 - **Weapons:** Cannon Overcharge to VI · Smart Ammo (bolts 25% faster and 40% farther, about 1.4 km, with a wider, gravity-aware aim assist) · Rapid Cyclers (+15% fire rate) · Heat Sinks (−20% heat per shot) · **Railgun** ◆ (hold right mouse to charge, release to fire a hitscan slug, 700 m range; 8 scrap a shot; 4 s cooldown) · Railgun Coils I–V (+300 m railgun range each, up to 2.2 km) · Slug Foundry I–IV (each shot costs 1 scrap less, down to 4) · Capacitor Bank (faster charge) · Piercing Slug (hits everything in its path)
 - **Missiles:** Missile Racks to V · Missile Boosters to IV · Quick Lock (40% faster locks) · Cluster Warheads (wider, harder blasts) · Auto-Rearm (a missile every 40 s)
@@ -116,6 +116,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 | F | Undock from the station |
 | Right mouse | Railgun (MK2 tech): hold to charge, release to fire |
 | R | Afterburner (MK2 tech): 3 s of double engine power |
+| Y | Jump Drive (MK2 tech): jump to the opposite point of your orbit, halfway round the hole (45 s cooldown) |
 | N | Call the next wave early |
 | , / . | Time warp between waves: slower / faster through 1×, 2×, 3×, 5×, 10×. Only when no hostiles are around; it drops back to 1× 10 s before the next wave, or if any pilot is hit. In multiplayer it's shared: any pilot can change it, unless the host ticked HOST-ONLY TIME WARP in the waiting room |
 | T | Show / hide the performance counter: FPS, average and worst frame time, CPU time per frame, render resolution |
