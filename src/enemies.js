@@ -9,11 +9,11 @@ export const ENEMY_DEFS = {
     fireRange: 420, boltSpeed: 190, burst: 3, burstGap: 0.13, cooldown: [1.8, 3.0], dmg: 6, aimError: 6,
     score: 100, trailColor: 0xff3a3a, build: buildRaider,
   },
-  // keeps its cannon, and launches a seeker drone every ~20 s at a pilot it can see
+  // keeps its cannon, and launches a seeker drone every ~17 s at a pilot it can see
   warden: {
     hp: 9, accel: 24, turn: 1.0, engageRange: 1000, preferred: 230, approach: 30,
-    fireRange: 520, boltSpeed: 150, burst: 1, burstGap: 0, cooldown: [2.6, 3.6], dmg: 9, spread: 5, aimError: 9,
-    seekerEvery: [17, 23], seekerRange: 1000,
+    fireRange: 520, boltSpeed: 150, burst: 1, burstGap: 0, cooldown: [1.6, 2.4], dmg: 9, spread: 5, aimError: 9,
+    seekerEvery: [16, 18], seekerRange: 1000,
     score: 300, trailColor: 0xd050ff, build: buildWarden,
   },
   seeker: {
@@ -208,7 +208,9 @@ export class Enemy {
         this.charge = 0;
         this.locked = false;
         const [a, b] = def.cooldown;
-        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.05);
+        // the last lancer standing fires 40% faster
+        const lone = this.type === 'lancer' && game.lancersAlive() === 1;
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.05) / (lone ? 1.4 : 1);
       }
       return faceTarget;
     }

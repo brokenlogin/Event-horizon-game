@@ -370,7 +370,7 @@ const game = {
   mp: false,
   bumpCd: 0, clearHold: 0, chargeBeep: 0,
   warp: 1,   // time warp between waves (solo): 1–10×
-  enemyFire, turretFire, bossLaunch, bossVolley, wardenLaunch, nearestPilot, lancerFire, layMine, supportTarget,
+  enemyFire, turretFire, bossLaunch, bossVolley, wardenLaunch, lancersAlive, nearestPilot, lancerFire, layMine, supportTarget,
   seenTypes: new Set(),
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
@@ -820,6 +820,8 @@ function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2)
   }
   return true;
 }
+
+function lancersAlive() { let n = 0; for (const e of game.enemies) if (e.alive && e.type === 'lancer') n++; return n; }
 
 /**
  * A warden launches a seeker drone (host / solo), at most two of its own in flight.
