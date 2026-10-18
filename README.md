@@ -29,9 +29,11 @@ The debug launcher has **MK2** and **MK2 + ALL TECH** presets for testing.
 
 New types join one at a time, and the first appearance of each gets a NEW CONTACT banner explaining it.
 
-- **Lancer (wave 6+):** a beam sniper that keeps its distance. A faint green aim line tracks you while it charges. When the line starts flashing it has **locked**, and about a second later it fires an instant 26-damage beam. It aims at where you'll be if you keep coasting, so thrust *across* its aim line during the lock to dodge. Thrusting straight toward or away from it doesn't help. The hole blocks the beam.
-- **Sower (wave 8+):** a slow, armoured mine-layer that drops proximity mines behind it, so they drift along its orbit (up to 6 per sower). Mines arm after 1.5 s, blink faster when you're close, and blow up within about 26 m for up to 24 damage. Shooting one from a distance is safe and worth 25 points. Leftover mines fizzle when the wave ends and never block it.
-- **Aegis (wave 11+):** unarmed. Every ship within 260 m of it is tethered to it and takes 65% less damage, shown as a violet bubble and SHIELDED on its marker. Kill it first.
+- **Seekers** no longer come in waves on their own. **Wardens** (the pink gunships, wave 3+) launch them: each warden fires a seeker drone about every 20 s at a pilot it can see within 1 km (at most two of its own in flight), and keeps its cannon. You get a "⚠ WARDEN LAUNCHED A SEEKER" notice. The Dreadnought launches them too. Launched seekers leave no wreck. From wave 14 they're Seeker MK2s.
+
+- **Lancer (wave 6+):** a beam sniper that keeps its distance. A faint green aim line tracks you while it charges. When the line starts flashing it has **locked**, and about a second later it fires an instant 36-damage beam. It aims at where you'll be if you keep coasting, so thrust *across* its aim line during the lock to dodge. Thrusting straight toward or away from it doesn't help. The hole blocks the beam.
+- **Sower (wave 8+):** a slow, armoured mine-layer that drops proximity mines behind it, so they drift along its orbit (up to 6 per sower). Mines arm after 1.5 s, blink faster when you're close, and go off within about 80 m, with a blast reaching 130 m (up to 24 damage). Shoot them from further out; each is worth 25 points. Leftover mines fizzle when the wave ends and never block it.
+- **Aegis (wave 11+):** unarmed. Every ship within 260 m of it is tethered to it and takes 90% less damage, shown as a violet bubble and SHIELDED on its marker. Kill it first.
 
 Their wrecks are worth 20 (lancer), 25 (sower) and 30 (aegis) scrap.
 
@@ -125,7 +127,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 ## Between waves
 
 - After each wave you get **2 minutes** before the next one. A countdown sits at the top of the screen, with alarms at 60, 30 and 10 seconds.
-- Destroyed ships leave **wrecks** on the orbit they died on. Fly within 75 m of one to salvage its scrap: raider 12, seeker 8, seeker MK2 12, warden 35, lancer 20, sower 25, aegis 30, Dreadnought 150. Wrecks disappear after 2 minutes.
+- Destroyed ships leave **wrecks** on the orbit they died on. Fly within 75 m of one to salvage its scrap: raider 12, warden 35, lancer 20, sower 25, aegis 30, Dreadnought 150. Wrecks disappear after 2 minutes.
 - **Every run starts at Kepler Station:** your ship sits in its docking clamp (your own clamp in multiplayer), and the clamps release it after a couple of seconds (or press F to launch at once). The first wave arrives 10 s in (12 s in multiplayer).
 - **Kepler Station** holds a high orbit: 2,500 m at 145 m/s, a lap every ~1.8 minutes. That's a little slower than a free orbit up there (~167 m/s), so station-keeping thrusters burn continuously; you can see them firing toward the hole. Undocking puts you on the free orbit that matches its circle, so you drift gently ahead of it. It's marked in green. Get within 300 m of it while moving under 40 m/s relative to it and you dock automatically. When you're close, the HUD shows your range and relative speed, plus green markers for your velocity relative to the station; burn toward ⊗ to match its speed.
 - **Docking assist (B):** twice a second the autopilot simulates candidate plans against the station's future path (burn-and-coast transfers, and powered pursuits that fly straight at it or swing round the hole first) and flies whichever reaches docking range soonest while staying well clear of the hole. In tests it docked from a 1,100 m combat orbit in 20–43 s (31 s on average). The Dreadnought intercept uses the same planner.

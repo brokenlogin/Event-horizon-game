@@ -9,9 +9,11 @@ export const ENEMY_DEFS = {
     fireRange: 420, boltSpeed: 190, burst: 3, burstGap: 0.13, cooldown: [1.8, 3.0], dmg: 6, aimError: 6,
     score: 100, trailColor: 0xff3a3a, build: buildRaider,
   },
+  // keeps its cannon, and launches a seeker drone every ~20 s at a pilot it can see
   warden: {
     hp: 9, accel: 24, turn: 1.0, engageRange: 1000, preferred: 230, approach: 30,
     fireRange: 520, boltSpeed: 150, burst: 1, burstGap: 0, cooldown: [2.6, 3.6], dmg: 9, spread: 5, aimError: 9,
+    seekerEvery: [17, 23], seekerRange: 1000,
     score: 300, trailColor: 0xd050ff, build: buildWarden,
   },
   seeker: {
@@ -43,7 +45,7 @@ export const ENEMY_DEFS = {
   // wave 11+: unarmed; ships near it take far less damage until it's destroyed
   aegis: {
     hp: 8, accel: 28, turn: 1.4, engageRange: 1400, preferred: 700, approach: 40,
-    weapon: 'none', support: true, shieldRange: 260, shieldMult: 0.35,
+    weapon: 'none', support: true, shieldRange: 260, shieldMult: 0.1,
     score: 300, trailColor: 0x7a6bff, build: buildAegis,
   },
   // boss: an orbital fortress that holds one low orbit, defended by six turrets (up to twelve on later appearances) and a seeker launcher
@@ -135,6 +137,7 @@ export class Enemy {
     this.alive = true;
     this.flash = 0;
     this.fireTimer = 1.5 + Math.random() * 2.5;
+    this.seekerTimer = 6 + Math.random() * 8;   // wardens: first launch a little after arriving
     this.burstLeft = 0;
     this.burstTimer = 0;
     this.phase = Math.random() * 100;
@@ -597,6 +600,16 @@ export class Enemy {
         const [a, b] = def.cooldown;
         this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06);
         this.rollAim();
+      }
+    }
+
+    // seeker launcher (wardens)
+    if (def.seekerEvery && engaged && !blocked && dist < def.seekerRange && this.age > 3) {
+      this.seekerTimer -= dt;
+      if (this.seekerTimer <= 0) {
+        const [a, b] = def.seekerEvery;
+        this.seekerTimer = a + Math.random() * (b - a);
+        game.wardenLaunch(this);
       }
     }
   }

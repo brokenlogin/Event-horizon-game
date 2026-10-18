@@ -370,7 +370,7 @@ const game = {
   mp: false,
   bumpCd: 0, clearHold: 0, chargeBeep: 0,
   warp: 1,   // time warp between waves (solo): 1–10×
-  enemyFire, turretFire, bossLaunch, bossVolley, nearestPilot, lancerFire, layMine, supportTarget,
+  enemyFire, turretFire, bossLaunch, bossVolley, wardenLaunch, nearestPilot, lancerFire, layMine, supportTarget,
   seenTypes: new Set(),
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
@@ -564,24 +564,21 @@ function waveComposition(n) {
   const k = enemyScale() * diffDef().count;   // crew size × difficulty
   if (isBossWave(n)) {
     const raiders = Math.max(1, Math.round(Math.min(2 + n, 9) * k * 0.4));
-    const seekers = Math.round(Math.min(Math.floor(n / 1.5), 6) * k * 0.35);
     const lancers = n >= 10 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k * 0.4) : 0;
     for (let i = 0; i < raiders; i++) list.push('raider');
-    for (let i = 0; i < seekers; i++) list.push(seekerType(n));
     for (let i = 0; i < lancers; i++) list.push('lancer');
     for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
     list.unshift('dread');   // the fortress arrives first
     return list;
   }
   const raiders = Math.round(Math.min(2 + n, 9) * k);
-  const seekers = n >= 2 ? Math.round(Math.min(Math.floor(n / 1.5), 6) * k) : 0;
   const wardens = n >= 3 ? Math.round(Math.min(Math.floor((n - 1) / 2), 4) * k) : 0;
   // after the first boss, new types join one at a time
   const lancers = n >= 6 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k) : 0;       // 6: 1, 8: 2 … up to 4
   const sowers = n >= 8 ? Math.round(Math.min(Math.floor((n - 6) / 2), 3) * k) : 0;        // 8: 1, 10: 2 … up to 3
   const aegis = n >= 11 ? Math.round(Math.min(1 + Math.floor((n - 11) / 4), 2) * k) : 0;   // 11: 1, 15: 2
   for (let i = 0; i < raiders; i++) list.push('raider');
-  for (let i = 0; i < seekers; i++) list.push(seekerType(n));
+  // (seekers don't come in waves: wardens and the dreadnought launch them)
   for (let i = 0; i < wardens; i++) list.push('warden');
   for (let i = 0; i < lancers; i++) list.push('lancer');
   for (let i = 0; i < sowers; i++) list.push('sower');
@@ -608,12 +605,14 @@ function startWave(n) {
 const NEW_CONTACT = {
   lancer: ['LANCER', 'IT CHARGES A BEAM · WHEN ITS GREEN AIM LINE FLASHES, THRUST ACROSS IT TO DODGE'],
   sower: ['SOWER', 'IT SEEDS PROXIMITY MINES ALONG ITS ORBIT · SHOOT THEM FROM A DISTANCE'],
-  aegis: ['AEGIS', 'IT SHIELDS NEARBY SHIPS (−65% DAMAGE) · TAKE IT OUT FIRST'],
+  aegis: ['AEGIS', 'IT SHIELDS NEARBY SHIPS (−90% DAMAGE) · TAKE IT OUT FIRST'],
   seeker2: ['SEEKER MK2', 'FASTER SEEKERS THAT HIT 50% HARDER · SHOOT THEM EARLY'],
 };
 function newContacts(queue) {
   const fresh = [];
   for (const t of Object.keys(NEW_CONTACT)) if (queue.includes(t) && !game.seenTypes.has(t)) fresh.push(t);
+  // seeker MK2s aren't in the queue (wardens and the dreadnought launch them)
+  if (seekerType(game.wave) === 'seeker2' && !game.seenTypes.has('seeker2') && (queue.includes('warden') || queue.includes('dread'))) fresh.push('seeker2');
   for (const t of fresh) game.seenTypes.add(t);
   return fresh;
 }
@@ -821,10 +820,37 @@ function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2)
   return true;
 }
 
-/** Seekers just left the dreadnought's tubes: warn anyone in reach. */
-function seekerLaunchAlert(pos) {
-  if (!player.alive || pos.distanceTo(player.pos) > 2600) return;
-  hud.notice('⚠ SEEKERS LAUNCHED FROM THE DREADNOUGHT', 'red');
+/**
+ * A warden launches a seeker drone (host / solo), at most two of its own in flight.
+ * Like the dreadnought's, they leave no wreck, so a warden can't be farmed.
+ */
+function wardenLaunch(w) {
+  let mine = 0;
+  for (const x of game.enemies) if (x.alive && x.launchedBy === w) mine++;
+  if (mine >= 2) return;
+  const s = new Enemy(seekerType(game.wave), scene, game.wave - 1);
+  scaleEnemyHp(s);
+  s.launchedBy = w;
+  s.noWreck = true;
+  const fwd = forwardOf(w.quat, _v3);
+  s.pos.copy(w.pos).addScaledVector(fwd, 5);
+  s.vel.copy(w.vel).addScaledVector(fwd, 30);
+  s.quat.copy(w.quat);
+  s.age = 0.8;
+  s.spawnFx = 0.6;
+  s.mesh.position.copy(s.pos);
+  s.mesh.scale.setScalar(0.4);
+  s.trail.reset(s.pos);
+  game.enemies.push(s);
+  launchFx(s.pos, s.vel);
+  seekerLaunchAlert(s.pos, true);
+  if (game.mp) net.sendEvent({ k: 'sl', p: r2(s.pos), w: 1 });
+}
+
+/** Seekers just launched (from the dreadnought's tubes, or a warden): warn anyone in reach. */
+function seekerLaunchAlert(pos, warden = false) {
+  if (!player.alive || pos.distanceTo(player.pos) > (warden ? 1500 : 2600)) return;
+  hud.notice(warden ? '⚠ WARDEN LAUNCHED A SEEKER' : '⚠ SEEKERS LAUNCHED FROM THE DREADNOUGHT', warden ? 'orange' : 'red');
   audio.beep(1250, 0.1, 0.07, 'square');
   setTimeout(() => audio.beep(1250, 0.1, 0.07, 'square'), 140);
 }
@@ -1106,7 +1132,7 @@ function layMine(s) {
 // ---------------------------------------------------------------------------
 // Aegis: ships within range of one take reduced damage; tethers show which.
 // ---------------------------------------------------------------------------
-const AEGIS_MULT = 0.35;
+const AEGIS_MULT = 0.1;   // −90% damage while shielded
 function supportTarget(a) {
   let best = null, bd = 1500 * 1500;
   for (const e of game.enemies) {
@@ -3787,7 +3813,7 @@ net.on('rail', (m) => {               // another pilot's railgun (visual; they a
   drawBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, RAIL_BEAM);
   audio.beam(THREE.MathUtils.clamp(1.2 - new THREE.Vector3().fromArray(m.p).distanceTo(player.pos) / 1200, 0.1, 0.8));
 });
-net.on('sl', (m) => { if (isGuest()) seekerLaunchAlert(new THREE.Vector3().fromArray(m.p)); });
+net.on('sl', (m) => { if (isGuest()) seekerLaunchAlert(new THREE.Vector3().fromArray(m.p), !!m.w); });
 net.on('beam', (m) => {               // a lancer fired: draw it (the host judges hits)
   if (!isGuest()) return;
   fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg, !!m.b, false);
