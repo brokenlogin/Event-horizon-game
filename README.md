@@ -16,12 +16,12 @@ To use a different port: `./serve.sh 8080`.
 
 Once **Missile Racks** and **Hull Plating** are both maxed, the station's upgrade list offers **UPGRADE TO MK2 SHIP** for 300 scrap (crew-priced in multiplayer, and shared like every upgrade). The MK2 has **+50% engine power** and a refitted look (wingtip nacelles, gold trim), and it keeps every upgrade you've bought.
 
-After that, the upgrade list is replaced by the **MK2 tech tree**: 63 nodes in four branches. Your existing upgrades are the first tiers of their chains. Click a node to see what it does and what it needs, then **BUY**.
+After that, the upgrade list is replaced by the **MK2 tech tree**: 65 nodes in four branches. Your existing upgrades are the first tiers of their chains. Click a node to see what it does and what it needs, then **BUY**.
 
 - **Weapons:** Cannon Overcharge to VI · Smart Ammo (bolts 25% faster and 40% farther, about 1.4 km, with a wider, gravity-aware aim assist) · Rapid Cyclers (+15% fire rate) · Heat Sinks (−20% heat per shot) · **Railgun** ◆ (hold right mouse to charge, release to fire a hitscan slug, 700 m range; 8 scrap a shot; 4 s cooldown) · Railgun Coils I–V (+300 m railgun range each, up to 2.2 km) · Slug Foundry I–IV (each shot costs 1 scrap less, down to 4) · Capacitor Bank (faster charge) · Piercing Slug (hits everything in its path)
 - **Missiles:** Missile Racks to V · Missile Boosters to IV · Quick Lock (40% faster locks) · Cluster Warheads (wider, harder blasts) · Auto-Rearm (a missile every 40 s)
 - **Defense:** Hull Plating to VI · Shield Capacitors to V · Nanite Repair to V · Shield Matrix (+50 max shield per level) · Emergency Shield (refills your shield once per wave when your hull drops below 25%) · Reactive Armour (−40% from collisions, rams and mines)
-- **Engineering:** Thruster Tuning (+15% engine power per level) · **Afterburner** ◆ (R: 3 s of double thrust, 15 s cooldown) · Salvage Magnet (+50% pickup range per level) · Scrap Refinery (+20% scrap per level)
+- **Engineering:** Thruster Tuning (+15% engine power per level) · **Afterburner** ◆ (R: 3 s of double thrust, 15 s cooldown) · Salvage Magnet (+50% pickup range per level) · Scrap Refinery I–IV (+20% scrap per level; no prerequisite) · **Jump Drive** ◆ (Y: jump to the opposite point of your orbit; needs Afterburner and Scrap Refinery II)
 
 The debug launcher has **MK2** and **MK2 + ALL TECH** presets for testing.
 
