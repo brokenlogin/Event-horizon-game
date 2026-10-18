@@ -29,6 +29,8 @@ The debug launcher has **MK2** and **MK2 + ALL TECH** presets for testing.
 
 New types join one at a time, and the first appearance of each gets a NEW CONTACT banner explaining it.
 
+- **Hunting parties:** every 40 s of a wave (the first 10 s in), a third of it turns aggressive for 40 s: those hostiles hunt you from any range, close in faster and fight from closer in, so a few are always on you but never the whole wave. You get "⚠ N HOSTILES CLOSING IN". In multiplayer the third is shared evenly between the pilots out flying, each taking the hostiles nearest them. (Not the Dreadnought, mines, seekers or the Aegis.)
+
 - **Seekers** no longer come in waves on their own. **Wardens** (the pink gunships, wave 3+) launch them: each warden fires a seeker drone about every 20 s at a pilot it can see within 1 km (at most two of its own in flight), and keeps its cannon. You get a "⚠ WARDEN LAUNCHED A SEEKER" notice. The Dreadnought launches them too. Launched seekers leave no wreck. From wave 14 they're Seeker MK2s.
 
 - **Lancer (wave 6+):** a beam sniper that keeps its distance. A faint green aim line tracks you while it charges. When the line starts flashing it has **locked**, and about a second later it fires an instant 36-damage beam. It aims at where you'll be if you keep coasting, so thrust *across* its aim line during the lock to dodge. Thrusting straight toward or away from it doesn't help. The hole blocks the beam.

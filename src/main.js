@@ -594,6 +594,7 @@ function startWave(n) {
   game.spawnQueue = waveComposition(n);
   game.spawnTimer = 1.2;
   game.waveActive = true;
+  game.aggroTimer = 10;   // the first surge a little after the wave arrives
   const restocked = missiles.ammo < missiles.capacity;
   missiles.refill();
   const fresh = newContacts(game.spawnQueue);
@@ -2913,6 +2914,10 @@ function tick(rawDt, render) {
         waveClearedFx(game.wave);
         if (game.mp) net.sendEvent({ k: 'waveClear', n: game.wave });
       }
+      if (!isGuest() && game.waveActive && (game.aggroTimer -= dt) <= 0) {
+        game.aggroTimer = AGGRO_EVERY;
+        pickAggressors();
+      }
       game.comboTimer -= dt;
       if (game.comboTimer <= 0) game.mult = 1;
     }
@@ -3267,8 +3272,34 @@ function alivePilots() {
   return list;
 }
 
+/**
+ * Every AGGRO_EVERY s of a wave, a third of it turns aggressive for that long: those
+ * hunt their pilot from any range and close in hard, so a few are always on you but
+ * never the whole wave. In multiplayer the third is shared evenly between the pilots
+ * who are out flying, each taking the hostiles nearest to them. Host / solo.
+ */
+const AGGRO_EVERY = 40;
+function pickAggressors() {
+  const pool = game.enemies.filter((e) => e.alive && !e.proxy && !e.def.boss && !e.def.inert && !e.def.support && !e.def.seeker);
+  const pilots = alivePilots().filter((p) => !p.docked && !p.docking);
+  if (!pool.length || !pilots.length) return;
+  const total = Math.min(pool.length, Math.max(2, Math.round(pool.length / 3)));
+  const quota = Math.ceil(total / pilots.length);
+  let left = total;
+  for (const p of pilots) {
+    if (left <= 0 || !pool.length) break;
+    pool.sort((a, b) => a.pos.distanceToSquared(p.pos) - b.pos.distanceToSquared(p.pos));
+    const take = pool.splice(0, Math.min(quota, left));
+    left -= take.length;
+    for (const e of take) { e.aggro = AGGRO_EVERY; e.aggroTarget = p; }
+    if (p === player) hud.notice(`⚠ ${take.length} HOSTILE${take.length === 1 ? '' : 'S'} CLOSING IN`, 'orange');
+    else if (game.mp) for (const [id, r] of remotes) if (r === p) net.sendEvent({ k: 'aggro', n: take.length }, id);
+  }
+}
+
 /** Who an enemy goes after: its assigned pilot (seekers from a volley) while they're still up, else the nearest. */
 function targetFor(e) {
+  if (e.aggro > 0 && e.aggroTarget && e.aggroTarget.alive && (e.aggroTarget === player || e.aggroTarget.present)) return e.aggroTarget;
   const t = e.assigned;
   if (t && t.alive && (t === player || t.present)) return t;
   return nearestPilot(e.pos);
@@ -3769,6 +3800,7 @@ net.on('ws', (m) => {
   game.waveActive = !!m.active;
   if (Math.abs(game.waveTimer - m.timer) > 0.5 * game.warp) game.waveTimer = m.timer;
 });
+net.on('aggro', (m) => { if (isGuest() && player.alive) hud.notice(`⚠ ${m.n} HOSTILE${m.n === 1 ? '' : 'S'} CLOSING IN`, 'orange'); });
 net.on('waveStart', (m) => {
   if (!isGuest()) return;
   game.wave = m.n;

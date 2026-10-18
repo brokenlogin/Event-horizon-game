@@ -490,14 +490,18 @@ export class Enemy {
       dirP.normalize();
     }
     _rel.subVectors(this.vel, player.vel); // our velocity relative to the player
-    const accel = def.accel * (1 + this.difficulty * 0.05);
+    // aggressive (a share of each wave, rotating; see pickAggressors in main.js): hunts its
+    // pilot from any range, closes faster and fights from closer in
+    const aggro = this.aggro > 0;
+    if (aggro) this.aggro -= dt;
+    const accel = def.accel * (1 + this.difficulty * 0.05) * (aggro ? 1.25 : 1);
 
     let faceTarget = null;
     const rp = periapsisEstimate(this.pos, this.vel);
     // feed-forward the difference in gravity between us and the player, so
     // relative-motion steering behaves as it would in free space
     const gDiff = _gP.copy(accelAt(player.pos, _gP)).sub(accelAt(this.pos, _gE));
-    const engaged = player.alive && dist < def.engageRange;
+    const engaged = player.alive && (aggro || dist < def.engageRange);
 
     const radialVel = this.vel.dot(this.pos) / Math.max(r, 1e-3);
     // look ahead along the current heading: would we pass inside the hole's shadow?
@@ -539,7 +543,8 @@ export class Enemy {
         this.thrust.copy(_des).clampLength(0, accel);
         faceTarget = _tmp2.copy(player.pos);
       } else {
-        const closing = THREE.MathUtils.clamp((dist - def.preferred) * 0.3, -30, def.approach);
+        const preferred = def.preferred * (aggro ? 0.6 : 1);
+        const closing = THREE.MathUtils.clamp((dist - preferred) * 0.3, -30, def.approach * (aggro ? 1.8 : 1));
         _des.copy(dirP).multiplyScalar(closing);
         // jink sideways so they're harder to hit
         _up.set(0, 1, 0).applyQuaternion(this.quat);
