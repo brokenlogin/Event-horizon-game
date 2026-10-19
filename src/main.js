@@ -603,6 +603,7 @@ function startWave(n) {
   game.spawnTimer = 1.2;
   game.waveActive = true;
   game.aggroTimer = 10;   // the first surge a little after the wave arrives
+  game.aggroParty = false;
   const restocked = missiles.ammo < missiles.capacity;
   missiles.refill();
   const fresh = newContacts(game.spawnQueue);
@@ -2933,9 +2934,14 @@ function tick(rawDt, render) {
         waveClearedFx(game.wave);
         if (game.mp) net.sendEvent({ k: 'waveClear', n: game.wave });
       }
-      if (!isGuest() && game.waveActive && (game.aggroTimer -= dt) <= 0) {
-        game.aggroTimer = AGGRO_EVERY;
-        pickAggressors();
+      if (!isGuest() && game.waveActive) {
+        game.aggroTimer -= dt;
+        // the next hunting party comes early once the last one has been shot down
+        const partyDown = game.aggroParty && !game.enemies.some((e) => e.alive && e.aggro > 0);
+        if (game.aggroTimer <= 0 || partyDown) {
+          game.aggroTimer = AGGRO_EVERY;
+          game.aggroParty = pickAggressors() > 0;
+        }
       }
       game.comboTimer -= dt;
       if (game.comboTimer <= 0) game.mult = 1;
@@ -3293,16 +3299,17 @@ function alivePilots() {
 }
 
 /**
- * Every AGGRO_EVERY s of a wave, a third of it turns aggressive for that long: those
- * hunt their pilot from any range and close in hard, so a few are always on you but
- * never the whole wave. In multiplayer the third is shared evenly between the pilots
+ * Every AGGRO_EVERY s of a wave (or as soon as the last party is all shot down), a
+ * third of it turns aggressive for that long: those hunt their pilot from any range and
+ * close in hard, so a few are always on you but never the whole wave. In multiplayer the third is shared evenly between the pilots
  * who are out flying, each taking the hostiles nearest to them. Host / solo.
  */
-const AGGRO_EVERY = 40;
+const AGGRO_EVERY = 25;
+/** Returns how many hostiles were sent. */
 function pickAggressors() {
   const pool = game.enemies.filter((e) => e.alive && !e.proxy && !e.def.boss && !e.def.inert && !e.def.support && !e.def.seeker);
   const pilots = alivePilots().filter((p) => !p.docked && !p.docking);
-  if (!pool.length || !pilots.length) return;
+  if (!pool.length || !pilots.length) return 0;
   const total = Math.min(pool.length, Math.max(2, Math.round(pool.length / 3)));
   const quota = Math.ceil(total / pilots.length);
   let left = total;
@@ -3315,6 +3322,7 @@ function pickAggressors() {
     if (p === player) hud.notice(`⚠ ${take.length} HOSTILE${take.length === 1 ? '' : 'S'} CLOSING IN`, 'orange');
     else if (game.mp) for (const [id, r] of remotes) if (r === p) net.sendEvent({ k: 'aggro', n: take.length }, id);
   }
+  return total - left;
 }
 
 /** Who an enemy goes after: its assigned pilot (seekers from a volley) while they're still up, else the nearest. */
