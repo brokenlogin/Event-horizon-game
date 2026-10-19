@@ -11,10 +11,10 @@ import {
   gravityAt, occludedByHole, accelAt,
 } from './physics.js';
 import { createBlackHole } from './blackhole.js';
-import { buildPlayerShip, setLoadout } from './ships.js';
+import { buildPlayerShip, setLoadout, buildMissile, buildWreck, shareGeometry } from './ships.js';
 import { buildCockpit, drawCockpit, updateCockpitLamp, updateCockpitControls, EYE } from './cockpit.js';
 import { BoltPool, Particles, Trail, createDust } from './fx.js';
-import { Enemy, resetEnemyIds } from './enemies.js';
+import { Enemy, ENEMY_DEFS, resetEnemyIds } from './enemies.js';
 import { GameAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
@@ -4225,9 +4225,46 @@ lobbyEls.callsign.addEventListener('change', () => {
 lobbyEls.callsign.addEventListener('keydown', (e) => { if (e.code === 'Enter') lobbyEls.callsign.blur(); });
 
 // ===========================================================================
+// Warm-up, behind the loading screen: one of every ship, missile and wreck,
+// plus every pooled effect that starts hidden, is drawn once, so the first
+// raider, aegis or explosion of a run doesn't stall a frame compiling shaders
+// and uploading its model. The dummies are kept (off-scene): while their
+// materials exist, three.js keeps those shaders compiled even when no ship of
+// that kind is alive.
+// ===========================================================================
+const warmKeep = [];
+function warmUp() {
+  const temp = [];
+  for (const [type, def] of Object.entries(ENEMY_DEFS)) {
+    const e = new Enemy(type, scene, 0, -1, def.boss ? bossTurretCount(1) : undefined);
+    if (type === 'raider') e.setShielded(true);   // the aegis bubble
+    temp.push(e.mesh);
+    warmKeep.push(e);
+  }
+  const missile = buildMissile();
+  shareGeometry('missile', missile.group);
+  const wreck = buildWreck(0xff4a2a);
+  for (const o of [missile.group, wreck.group]) { scene.add(o); temp.push(o); warmKeep.push(o); }
+
+  const restore = [];
+  scene.traverse((o) => {
+    restore.push([o, o.visible, o.frustumCulled]);
+    o.visible = true;
+    o.frustumCulled = false;
+  });
+  renderer.setRenderTarget(scenePass.target);   // same target (and so the same shader variant) as in play
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  for (const [o, v, f] of restore) { o.visible = v; o.frustumCulled = f; }
+  for (const o of temp) scene.remove(o);
+  for (const e of warmKeep) if (e.trail) e.trail.dispose();
+}
+
+// ===========================================================================
 // Boot
 // ===========================================================================
 applyQuality();
+warmUp();
 updateBest();
 renderDifficulty();
 updateMenuCamera(0);

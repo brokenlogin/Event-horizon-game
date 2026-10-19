@@ -20,6 +20,29 @@ export function getGlowTexture() {
   return glowTexture;
 }
 
+// ---------------------------------------------------------------------------
+// Geometry sharing. Every ship of one kind is built the same way, so after the
+// first build of `key` each later build swaps its fresh geometry for the
+// first one's, part for part. The fresh copies never reach the graphics card,
+// so a spawn uploads nothing, and nothing is freed when a ship goes away.
+// ---------------------------------------------------------------------------
+const geoCache = new Map();
+export function shareGeometry(key, root) {
+  const list = [];
+  root.traverse((o) => { if ((o.isMesh || o.isLine || o.isPoints) && !o.isInstancedMesh) list.push(o); });
+  const cached = geoCache.get(key);
+  if (!cached || cached.length !== list.length) {
+    for (const o of list) o.geometry.userData.shared = true;
+    geoCache.set(key, list.map((o) => o.geometry));
+    return;
+  }
+  list.forEach((o, i) => {
+    if (o.geometry === cached[i]) return;
+    if (!o.geometry.userData.shared) o.geometry.dispose();
+    o.geometry = cached[i];
+  });
+}
+
 function hdr(hex, intensity) {
   return new THREE.Color(hex).multiplyScalar(intensity);
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { integrate, periapsisEstimate, accelAt, occludedByHole, circularSpeed, ARENA_RADIUS, RS } from './physics.js';
-import { buildRaider, buildWarden, buildSeeker, buildSeeker2, buildDreadnought, buildLancer, buildSower, buildMine, buildAegis } from './ships.js';
+import { shareGeometry, buildRaider, buildWarden, buildSeeker, buildSeeker2, buildDreadnought, buildLancer, buildSower, buildMine, buildAegis } from './ships.js';
 import { Trail } from './fx.js';
 
 export const ENEMY_DEFS = {
@@ -157,6 +157,7 @@ export class Enemy {
     this.rollAim();
 
     const built = this.def.boss ? this.def.build(turretCount) : this.def.build();
+    shareGeometry(this.def.boss ? `${type}:${turretCount}` : type, built.group);
     this.built = built;
     this.mesh = built.group;
     this.radius = built.radius;

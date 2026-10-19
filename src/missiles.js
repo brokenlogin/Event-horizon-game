@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { integrate, accelAt, occludedByHole } from './physics.js';
-import { buildMissile } from './ships.js';
+import { buildMissile, shareGeometry } from './ships.js';
 import { Trail } from './fx.js';
 
 // ---------------------------------------------------------------------------
@@ -158,6 +158,7 @@ export class MissileSystem {
   _launch(target, salvage = false) {
     const { scene, player, audio, particles } = this.ctx;
     const built = buildMissile();
+    shareGeometry('missile', built.group);
     scene.add(built.group);
     const fwd = _fwd.set(0, 0, -1).applyQuaternion(player.quat);
     const down = _dir.set(0, -1, 0).applyQuaternion(player.quat);
