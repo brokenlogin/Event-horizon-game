@@ -304,7 +304,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;   // typing a room code
   if (e.code === 'Escape' && techTree.visible) { techTree.close(); e.stopImmediatePropagation(); return; }
   if (e.code === 'KeyT' && !e.repeat) togglePerf();
-  if (['Space', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
+  if (['Space', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (state === 'playing' && player.alive && !e.repeat) {
     const inDock = player.docked || player.docking;
@@ -2172,7 +2172,7 @@ const _origin = new THREE.Vector3();
 
 function updatePlayerControl(dt) {
   // --- docking assist: any manual thrust input hands control back ---
-  if (dockAssist.active && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight'].some((k) => keys.has(k))) {
+  if (dockAssist.active && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].some((k) => keys.has(k))) {
     dockAssist.disengage();
     hud.notice('DOCKING ASSIST OFF · MANUAL OVERRIDE', 'dim');
   }
@@ -2200,7 +2200,10 @@ function updatePlayerControl(dt) {
   player.pitchRate = THREE.MathUtils.lerp(player.pitchRate, pitch / Math.max(dt, 1e-4), 1 - Math.exp(-dt * 8));
 
   // --- thrust ---
-  const W = keys.has('KeyW'), S = keys.has('KeyS'), A = keys.has('KeyA'), D = keys.has('KeyD');
+  const W = keys.has('KeyW') || keys.has('ArrowUp');
+  const S = keys.has('KeyS') || keys.has('ArrowDown');
+  const A = keys.has('KeyA') || keys.has('ArrowLeft');
+  const D = keys.has('KeyD') || keys.has('ArrowRight');
   const U = keys.has('Space'), Dn = keys.has('ShiftLeft') || keys.has('ShiftRight');
   const lx = (D ? 1 : 0) - (A ? 1 : 0);
   const ly = (U ? 1 : 0) - (Dn ? 1 : 0);
@@ -2322,7 +2325,7 @@ function updatePlayerVisual(dt, time) {
   setCockpitHud(inside);
   for (const m of shipParts.cockpitHide) m.visible = !inside;
   cockpit.group.visible = inside;
-  const lx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+  const lx = ((keys.has('KeyD') || keys.has('ArrowRight')) ? 1 : 0) - ((keys.has('KeyA') || keys.has('ArrowLeft')) ? 1 : 0);
   // no banking in first person: the cockpit stays locked to your view
   const targetRoll = inside ? 0 : THREE.MathUtils.clamp(player.yawRate * 0.35, -0.7, 0.7) - lx * 0.25;
   const targetPitch = inside ? 0 : THREE.MathUtils.clamp(player.pitchRate * 0.12, -0.3, 0.3);
