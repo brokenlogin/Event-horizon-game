@@ -426,7 +426,6 @@ let best = store.get(bestKey(difficulty), 0);
 const camQuat = new THREE.Quaternion();
 const camOffset = new THREE.Vector3();
 let fovKick = 0;
-let accumulator = 0;
 
 // scratch
 const _v1 = new THREE.Vector3();
@@ -2878,15 +2877,14 @@ function tick(rawDt, render) {
     if (!isGuest()) for (const e of game.enemies) if (e.alive) e.think(dt, targetFor(e), game);
     else for (const e of game.enemies) if (e.alive && e.turrets) e.aimTurrets(dt, game, false);   // guns follow pilots; the host fires them
 
-    accumulator += dt;
-    let steps = 0;
+    // Physics covers exactly this frame's time, in equal steps of at most FIXED_DT. (A fixed
+    // step with a carried-over remainder leaves the world up to one step behind the frame by
+    // a different amount each frame, so particles and the camera, which run on frame time,
+    // jittered against it.)
     const maxSteps = 10 * game.warp;   // time warp needs proportionally more physics steps per frame
-    while (accumulator >= FIXED_DT && steps < maxSteps) {
-      physicsStep(FIXED_DT);
-      accumulator -= FIXED_DT;
-      steps++;
-    }
-    if (steps >= maxSteps) accumulator = 0;
+    const steps = Math.min(maxSteps, Math.ceil(dt / FIXED_DT - 1e-6));
+    const h = steps > 0 ? Math.min(dt / steps, FIXED_DT) : 0;   // a hitch longer than maxSteps drops the excess
+    for (let i = 0; i < steps; i++) physicsStep(h);
     game.enemies = game.enemies.filter((e) => e.alive);
 
     // station, docking, salvage
@@ -4290,6 +4288,7 @@ frame();
 window.__eh = {
   collectBoltTargets, hitEnemy, changeWarp,
   advance(sec) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) tick(1 / 60, i === n - 1); },
+  step(dt, render = false) { tick(dt, render); },
   setFiring(v) { firing = v; },
   spawnEnemy, explode, killEnemy, missiles, station, wrecks, stationUI, undock, dockAssist, toggleDockAssist,
   net, remotes, allyBolts, playerBolts, enemyBolts, mp, reviveAtStation, requestRevive, hostGame, joinGame, hostStart, addScrap, enemyScale, costScale, pilotCount,
