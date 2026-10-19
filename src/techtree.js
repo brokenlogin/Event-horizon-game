@@ -17,7 +17,7 @@ export const BRANCHES = [
   { id: 'engineering', name: 'ENGINEERING', color: '#6dff9a', bx: 1, by: 1 },
 ];
 
-const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 const nodes = [];
 /** A chain of tiers of one stat, stacked down one lane. */
 function chain(branch, lane, row0, key, name, desc, costs, firstReq = [], kind = 'stat') {
@@ -50,9 +50,9 @@ chain('missiles', 2, 2, 'cluster', 'CLUSTER WARHEADS', 'Missile blasts are twice
 chain('missiles', 3, 0, 'payload', 'MISSILE PAYLOAD', '+30 m missile blast radius and +30% missile damage (direct hits and blast)', [90, 150, 220, 300, 400]);
 chain('missiles', 1, 4, 'autorearm', 'AUTO-REARM', 'Rebuilds a missile every 40 s, up to your rack capacity', [200], ['missileCap4']);
 // --- defense ---
-chain('defense', 0, 0, 'hull', 'HULL PLATING', '+25 maximum hull', [35, 70, 110, 160, 220, 300]);
+chain('defense', 0, 0, 'hull', 'HULL PLATING', '+25 maximum hull', [35, 70, 110, 160, 220, 300, 390, 490, 600]);
 chain('defense', 1, 0, 'shieldRegen', 'SHIELD CAPACITORS', '+40% shield regen, shorter recharge delay', [25, 50, 90, 140, 200]);
-chain('defense', 2, 0, 'repair', 'NANITE REPAIR', 'Hull repairs itself: +0.75% of max hull per second', [45, 90, 140, 200, 270]);
+chain('defense', 2, 0, 'repair', 'NANITE REPAIR', 'Hull repairs itself: +0.75% of max hull per second', [45, 90, 140, 200, 270, 350, 440, 540]);
 chain('defense', 3, 2, 'shieldcap', 'SHIELD MATRIX', '+50 maximum shield', [150, 240], ['shieldRegen2']);
 chain('defense', 3, 4, 'emergency', 'EMERGENCY SHIELD', 'Once per wave, refills your shield the moment your hull drops below 25%', [220], ['shieldcap2']);
 chain('defense', 1, 5, 'armor', 'REACTIVE ARMOUR', '−40% damage from collisions, rams and mine blasts', [160], ['hull5']);
