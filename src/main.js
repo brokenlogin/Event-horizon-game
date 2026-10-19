@@ -310,7 +310,7 @@ let hadLock = false;
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;   // typing a room code
   if (e.code === 'Escape' && techTree.visible) { techTree.close(); e.stopImmediatePropagation(); return; }
-  if (e.code === 'KeyT' && !e.repeat && state !== 'playing') togglePerf();
+  if (e.code === 'KeyP' && !e.repeat) togglePerf();   // (T is a flight key: TFGH aim)
   if (['Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'Digit5', 'Digit6', 'Digit7', 'Numpad5', 'Numpad6', 'Numpad7', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyI', 'KeyJ', 'KeyK', 'KeyL', 'KeyT', 'KeyG', 'KeyH', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (state === 'playing' && player.alive && !player.docked && (e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'Digit5' || e.code === 'Numpad5')) firing = true;
@@ -327,8 +327,8 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'Comma') changeWarp(-1);
     if (e.code === 'Period') changeWarp(1);
   }
-  if ((e.code === 'KeyP' || (e.code === 'Escape' && document.pointerLockElement !== canvas)) && state === 'playing') pauseGame();
-  else if ((e.code === 'KeyP' || e.code === 'Escape') && state === 'dead' && mp.spectating) setOverlay('pause');
+  if (e.code === 'Escape' && document.pointerLockElement !== canvas && state === 'playing') pauseGame();
+  else if (e.code === 'Escape' && state === 'dead' && mp.spectating) setOverlay('pause');
 });
 window.addEventListener('keyup', (e) => {
   keys.delete(e.code);
@@ -2833,7 +2833,7 @@ function frame(now) {
 }
 
 // ---------------------------------------------------------------------------
-// Performance readout (T). Frame time is the real interval between displayed
+// Performance readout (P). Frame time is the real interval between displayed
 // frames; CPU is the time this code spends per frame (game logic plus issuing
 // the draw calls). If frames are slow while CPU stays low, the graphics card
 // is the limit.

@@ -132,7 +132,7 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 | Y | Jump Drive (MK2 tech): jump to the opposite point of your orbit, halfway round the hole (45 s cooldown) |
 | N | Call the next wave early |
 | , / . | Time warp between waves: slower / faster through 1×, 2×, 3×, 5×, 10×. Only when no hostiles are around; it drops back to 1× 10 s before the next wave, or if any pilot is hit. In multiplayer it's shared: any pilot can change it, unless the host ticked HOST-ONLY TIME WARP in the waiting room |
-| T (outside gameplay) | Show / hide the performance counter: FPS, average and worst frame time, CPU time per frame, render resolution |
+| P | Show / hide the performance counter: FPS, average and worst frame time, CPU time per frame, render resolution |
 | Esc | Pause |
 
 ## Between waves
