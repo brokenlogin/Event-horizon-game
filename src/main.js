@@ -2944,7 +2944,8 @@ function tick(rawDt, render) {
     if (!player.alive) setCockpitHud(false);
     if (player.alive) updatePlayerVisual(dt, visualTime);
     else for (const t of playerTrails) t.update(dt, player.pos, camera.position, Math.max(0, 0.5 - game.deathTimer));
-    for (const e of game.enemies) e.updateVisual(dt, camera.position, visualTime);
+    const vVel = viewerVel();
+    for (const e of game.enemies) e.updateVisual(dt, camera.position, visualTime, vVel);
     missiles.update(dt, camera.position, visualTime);
     updateBossBlasts(dt);
     updateBeams(dt);

@@ -313,8 +313,10 @@ export class Trail {
     for (let i = 0; i < this.n; i++) this.points.push(p.clone());
   }
 
-  update(dt, head, camPos, intensity) {
+  /** `drift`: optional velocity the trail's points move with (draws it in a moving frame). */
+  update(dt, head, camPos, intensity, drift = null) {
     if (this.points.length === 0) this.reset(head);
+    if (drift) for (const p of this.points) p.addScaledVector(drift, dt);
     this.timer += dt;
     if (this.timer >= this.interval) {
       this.timer = 0;

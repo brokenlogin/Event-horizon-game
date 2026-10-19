@@ -446,24 +446,34 @@ export function buildSeeker(hullHex = 0x8a6a2a, glowHex = 0xffc23a, flameHex = 0
   group.add(model);
   const m = enemyMaterials(hullHex, glowHex);
 
+  // the spiked ball spins about the flight axis; the engine behind it holds still
+  const spin = new THREE.Group();
+  model.add(spin);
   const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.82, 1), m.glow);
-  model.add(core);
+  spin.add(core);
   const shell = new THREE.Mesh(new THREE.DodecahedronGeometry(0.88, 0), m.hull);
-  model.add(shell);
+  spin.add(shell);
   const spikeGeo = new THREE.ConeGeometry(0.18, 1.3, 5);
-  const dirs = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  const dirs = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, -1],
     [0.7, 0.7, 0], [-0.7, 0.7, 0], [0.7, -0.7, 0], [-0.7, -0.7, 0]];
   for (const d of dirs) {
     const s = new THREE.Mesh(spikeGeo, m.dark);
     const v = new THREE.Vector3(...d).normalize();
     s.position.copy(v).multiplyScalar(1.15);
     s.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v);
-    model.add(s);
+    spin.add(s);
   }
+  // engine: a short flared nozzle with a glowing lip; the flame and the trail start at its mouth
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, 0.75, 10).rotateX(Math.PI / 2), m.dark);
+  nozzle.position.z = 1.12;
+  model.add(nozzle);
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.05, 6, 14), m.glow);
+  lip.position.z = 1.48;
+  model.add(lip);
   const flames = [];
-  addFlame(model, 0, 0, 1.0, 0.3, flameHex, flames);
+  addFlame(model, 0, 0, 1.5, 0.28, flameHex, flames);
   model.scale.setScalar(1.35);
-  return { group, model, flames, mats: [m.hull, m.dark], radius: 2.8, core, muzzles: [] };
+  return { group, model, spin, flames, mats: [m.hull, m.dark], radius: 2.8, core, muzzles: [], exhaust: new THREE.Vector3(0, 0, 1.5 * 1.35) };
 }
 
 /** Seeker MK2 (wave 14+): the same drone in a lighter yellow. */

@@ -663,7 +663,7 @@ export class Enemy {
   /** Where the ship is drawn (proxies glide toward corrections instead of jumping). */
   get renderPos() { return this.proxy ? _render.copy(this.pos).add(this.err) : this.pos; }
 
-  updateVisual(dt, camPos, time) {
+  updateVisual(dt, camPos, time, viewVel) {
     if (this.proxy) {
       this.err.multiplyScalar(Math.exp(-dt / 0.2));
       this.quat.slerp(this.targetQuat, 1 - Math.exp(-dt * 10));
@@ -710,8 +710,7 @@ export class Enemy {
       this.built.coreGlow.material.opacity = 0.75 + Math.sin(time * 2.2) * 0.25;
     }
     if (this.def.seeker) {
-      this.built.model.rotation.z += dt * 3;
-      this.built.model.rotation.x += dt * 1.7;
+      this.built.spin.rotation.z += dt * 3;
       const s = 1 + Math.sin(time * 14) * 0.15;
       this.built.core.scale.setScalar(s);
     }
@@ -721,9 +720,14 @@ export class Enemy {
       const s = 1 - this.spawnFx;
       this.mesh.scale.setScalar(Math.max(0.01, s * s * (3 - 2 * s)));
     }
-    _tmp.set(0, 0, 1).applyQuaternion(this.quat).multiplyScalar(this.def.boss ? 40 : this.type === 'warden' ? 3.4 : 1.9).add(this.mesh.position);
+    // the trail starts at the engine's mouth (where the model says it is, else just behind the hull)
+    if (this.built.exhaust) _tmp.copy(this.built.exhaust).multiplyScalar(this.mesh.scale.x);
+    else _tmp.set(0, 0, this.def.boss ? 40 : this.type === 'warden' ? 3.4 : 1.9);
+    _tmp.applyQuaternion(this.quat).add(this.mesh.position);
     if (this.def.boss || this.def.inert) this.trail.mesh.visible = false;   // the boss's plume is enough; mines have none
-    else this.trail.update(dt, _tmp, camPos, 0.35 + this.throttle * 0.9);
+    // a seeker's trail is drawn in the viewer's frame, so it streams out behind the drone
+    // along the line it's chasing you on (in the hole's frame it would trail along the orbit)
+    else this.trail.update(dt, _tmp, camPos, 0.35 + this.throttle * 0.9, this.def.seeker ? viewVel : null);
   }
 
   destroy() {
