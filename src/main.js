@@ -409,34 +409,35 @@ const CUSTOM_FIELDS = [
   { key: 'hp', name: 'ENEMY HEALTH', min: 10, max: 1000 },
   { key: 'price', name: 'UPGRADE PRICES', min: 0, max: 1000 },
 ];
-// ADVANCED: finer tuning. Each slider covers its whole range; `def` is the standard game.
+// ADVANCED: finer tuning. `def` is the standard game; each slider runs min–max, and the
+// number box takes anything up to `typeMax` (hunting party size stops at the whole wave).
 const ADV_FIELDS = [
   { group: 'ENEMY SPAWNS (SHARE OF THE USUAL NUMBER)' },
-  { key: 'n_raider', name: 'RAIDERS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
-  { key: 'n_warden', name: 'WARDENS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
-  { key: 'n_lancer', name: 'LANCERS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
-  { key: 'n_sower', name: 'SOWERS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
-  { key: 'n_aegis', name: 'AEGIS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
+  { key: 'n_raider', name: 'RAIDERS', min: 0, max: 500, step: 10, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'n_warden', name: 'WARDENS', min: 0, max: 500, step: 10, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'n_lancer', name: 'LANCERS', min: 0, max: 500, step: 10, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'n_sower', name: 'SOWERS', min: 0, max: 500, step: 10, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'n_aegis', name: 'AEGIS', min: 0, max: 500, step: 10, def: 100, typeMax: 2000, unit: '%' },
   { group: 'DREADNOUGHT' },
-  { key: 'bossEvery', name: 'ARRIVES EVERY', min: 0, max: 15, step: 1, def: 5, unit: 'waves', hint: '0 = never' },
-  { key: 'bossHp', name: 'HULL STRENGTH', min: 25, max: 500, step: 25, def: 100, unit: '%' },
-  { key: 'f_turret', name: 'TURRET FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
-  { key: 'b_turret', name: 'TURRET BURST', min: 1, max: 10, step: 1, def: 3, unit: 'shots' },
+  { key: 'bossEvery', name: 'ARRIVES EVERY', min: 0, max: 15, step: 1, def: 5, typeMax: 100, unit: 'waves', hint: '0 = never' },
+  { key: 'bossHp', name: 'HULL STRENGTH', min: 25, max: 500, step: 25, def: 100, typeMax: 5000, unit: '%' },
+  { key: 'f_turret', name: 'TURRET FIRE RATE', min: 25, max: 400, step: 25, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'b_turret', name: 'TURRET BURST', min: 1, max: 10, step: 1, def: 3, typeMax: 50, unit: 'shots' },
   { group: 'ENEMY BEHAVIOUR' },
-  { key: 'speed', name: 'ENEMY SPEED', min: 25, max: 300, step: 5, def: 100, unit: '%', hint: 'how fast they close in' },
-  { key: 'thrust', name: 'ENEMY THRUST', min: 25, max: 300, step: 5, def: 100, unit: '%', hint: 'how hard they accelerate' },
-  { key: 'aggroEvery', name: 'HUNTING PARTY EVERY', min: 5, max: 120, step: 5, def: 25, unit: 's' },
+  { key: 'speed', name: 'ENEMY SPEED', min: 25, max: 300, step: 5, def: 100, typeMax: 1000, unit: '%', hint: 'how fast they close in' },
+  { key: 'thrust', name: 'ENEMY THRUST', min: 25, max: 300, step: 5, def: 100, typeMax: 1000, unit: '%', hint: 'how hard they accelerate' },
+  { key: 'aggroEvery', name: 'HUNTING PARTY EVERY', min: 5, max: 120, step: 5, def: 25, typeMax: 600, unit: 's' },
   { key: 'aggroShare', name: 'HUNTING PARTY SIZE', min: 0, max: 100, step: 5, def: 33, unit: '%', hint: 'share of the wave; 0 = none' },
   { group: 'ENEMY WEAPONS' },
-  { key: 'f_raider', name: 'RAIDER FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
-  { key: 'b_raider', name: 'RAIDER BURST', min: 1, max: 10, step: 1, def: 3, unit: 'shots' },
-  { key: 'f_warden', name: 'WARDEN FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
-  { key: 'b_warden', name: 'WARDEN BURST', min: 1, max: 10, step: 1, def: 1, unit: 'shots' },
-  { key: 'seekerEvery', name: 'WARDEN SEEKER EVERY', min: 3, max: 60, step: 1, def: 15, unit: 's' },
-  { key: 'f_lancer', name: 'LANCER FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
-  { key: 'mineRate', name: 'SOWER MINE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
+  { key: 'f_raider', name: 'RAIDER FIRE RATE', min: 25, max: 400, step: 25, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'b_raider', name: 'RAIDER BURST', min: 1, max: 10, step: 1, def: 3, typeMax: 50, unit: 'shots' },
+  { key: 'f_warden', name: 'WARDEN FIRE RATE', min: 25, max: 400, step: 25, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'b_warden', name: 'WARDEN BURST', min: 1, max: 10, step: 1, def: 1, typeMax: 50, unit: 'shots' },
+  { key: 'seekerEvery', name: 'WARDEN SEEKER EVERY', min: 3, max: 60, step: 1, def: 15, typeMax: 600, unit: 's' },
+  { key: 'f_lancer', name: 'LANCER FIRE RATE', min: 25, max: 400, step: 25, def: 100, typeMax: 2000, unit: '%' },
+  { key: 'mineRate', name: 'SOWER MINE RATE', min: 25, max: 400, step: 25, def: 100, typeMax: 2000, unit: '%' },
   { group: 'WORLD' },
-  { key: 'stationSpeed', name: 'STATION ORBIT SPEED', min: 100, max: 167, step: 1, def: 145, unit: 'm/s', hint: 'a free orbit there is ~167 m/s' },
+  { key: 'stationSpeed', name: 'STATION ORBIT SPEED', min: 100, max: 167, step: 1, def: 145, typeMax: 300, unit: 'm/s', hint: 'a free orbit there is ~167 m/s' },
 ];
 const ADV_KEYS = ADV_FIELDS.filter((f) => f.key);
 const fieldOf = (key) => CUSTOM_FIELDS.find((f) => f.key === key) || ADV_KEYS.find((f) => f.key === key);
@@ -444,7 +445,7 @@ function sanitizeCustom(c) {
   const out = {};
   for (const f of [...CUSTOM_FIELDS, ...ADV_KEYS]) {
     const v = Number((c || {})[f.key]);
-    out[f.key] = Number.isFinite(v) ? THREE.MathUtils.clamp(Math.round(v), f.min, f.max) : (f.def ?? 100);
+    out[f.key] = Number.isFinite(v) ? THREE.MathUtils.clamp(Math.round(v), f.min, f.typeMax ?? f.max) : (f.def ?? 100);
   }
   out.fpv = !!(c || {}).fpv;   // first-person view
   return out;
@@ -2175,7 +2176,7 @@ function customRow(f) {
   const hint = f.hint ? `<small>${f.hint}</small>` : '';
   return `<div class="cd-row"><span class="cd-name">${f.name}${hint}</span>`
     + `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${THREE.MathUtils.clamp(v, lo, hi)}" data-key="${f.key}">`
-    + `<label class="cd-num"><input type="number" min="${f.min}" max="${f.max}" step="1" value="${v}" data-key="${f.key}">${f.unit || '%'}</label></div>`;
+    + `<label class="cd-num"><input type="number" min="${f.min}" max="${f.typeMax ?? f.max}" step="1" value="${v}" data-key="${f.key}">${f.unit || '%'}</label></div>`;
 }
 function renderCustomEditor() {
   document.getElementById('cd-rows').innerHTML = CUSTOM_FIELDS.map(customRow).join('')
@@ -2185,6 +2186,7 @@ function renderCustomEditor() {
     + `<button id="cd-adv-toggle" class="cd-adv-toggle${advOpen ? ' open' : ''}">ADVANCED ${advOpen ? '▾' : '▸'}`
     + `${advChanged(customDiff) ? '<span>· CHANGED</span>' : ''}</button>`
     + (advOpen ? `<div class="cd-adv">${ADV_FIELDS.map((f) => (f.group ? `<div class="cd-group">${f.group}</div>` : customRow(f))).join('')}`
+      + '<div class="cd-hint">Type in a box to go past the end of its slider.</div>'
       + '<button id="cd-adv-reset" class="btn small">RESET ADVANCED</button></div>' : '');
 }
 function setCustom(key, value, fromSlider) {
