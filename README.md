@@ -117,8 +117,8 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 | Input | Action |
 | --- | --- |
 | Mouse | Steer (pitch / yaw) |
-| W / S or ↑ / ↓ | Main thruster / retro thruster |
-| A / D or ← / → | Strafe left / right |
+| W / S, ↑ / ↓, or I / K | Main thruster / retro thruster |
+| A / D, ← / →, or J / L | Strafe left / right |
 | Space / Shift | Thrust up / down |
 | Z / C | Roll |
 | Left click | Fire cannons |
