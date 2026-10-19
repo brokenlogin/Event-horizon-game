@@ -160,7 +160,7 @@ body.fpv #status { display: none; }   /* first person: it's on the cockpit scree
 .menu-inner { max-width: 640px; margin: auto 0; flex-shrink: 0; }
 .title-kicker { font-family: var(--font-display); font-size: 13px; letter-spacing: 6px; color: var(--orange); text-shadow: 0 0 12px rgba(255, 173, 74, 0.6); margin-bottom: 10px; }
 .title { font-family: var(--font-display); font-weight: 900; font-size: clamp(54px, min(8vw, 11vh), 112px); line-height: 0.92; margin: 0 0 clamp(18px, 4vh, 40px); letter-spacing: 8px; color: #fff; text-shadow: 0 0 30px rgba(94, 242, 255, 0.55), 0 0 80px rgba(94, 242, 255, 0.25); }
-.title span { display: block; color: transparent; -webkit-text-stroke: 2px var(--cyan); text-shadow: 0 0 30px rgba(94, 242, 255, 0.4); letter-spacing: 12px; }
+.title span { display: block; color: var(--cyan); text-shadow: none; filter: url(#title-outline) drop-shadow(0 0 15px rgba(94, 242, 255, 0.4)); letter-spacing: 12px; }
 .menu-buttons { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
 .menu-footer { flex-shrink: 0; margin-top: 24px; font-size: 15px; letter-spacing: 3px; color: rgba(217, 246, 255, 0.5); }
 

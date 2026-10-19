@@ -140,6 +140,17 @@
     <div class="menu-inner">
       <div class="title-kicker">ORBITAL COMBAT AT THE EDGE OF A SINGULARITY</div>
       <h1 class="title">EVENT<span>HORIZON</span></h1>
+      <!-- outline of each letter's whole shape: a text stroke would also trace where the
+           font's pieces overlap (the seam inside the R) -->
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <filter id="title-outline" x="-5%" y="-10%" width="110%" height="120%">
+          <feMorphology in="SourceAlpha" operator="dilate" radius="1" result="outer"/>
+          <feMorphology in="SourceAlpha" operator="erode" radius="1" result="inner"/>
+          <feComposite in="outer" in2="inner" operator="out" result="ring"/>
+          <feFlood flood-color="#5ef2ff"/>
+          <feComposite in2="ring" operator="in"/>
+        </filter>
+      </svg>
       <div class="menu-buttons">
         <div class="diff-picker">
           <span class="diff-label">DIFFICULTY</span>
