@@ -12,6 +12,14 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
+The **GRAPHICS** button on the main menu cycles three presets:
+
+| Preset | Render resolution | Black hole ray-march steps | Anti-aliasing |
+|---|---|---|---|
+| HIGH | 1.5× (capped at the display's) | full | 4× |
+| MEDIUM | 1.0× | ~30% fewer | 4× |
+| LOW | 0.7× | ~50% fewer | 2× |
+
 ## MK2 ship and the tech tree
 
 Once **Missile Racks** and **Hull Plating** are both maxed, the station's upgrade list offers **UPGRADE TO MK2 SHIP** for 300 scrap (crew-priced in multiplayer, and shared like every upgrade). The MK2 has **+50% engine power** and a refitted look (wingtip nacelles, gold trim), and it keeps every upgrade you've bought.

@@ -49,10 +49,12 @@ const STATION_RADIUS = 2500;           // high orbit, held a little under orbita
 const BASE_HULL = 100;
 const SHIELD_MAX = 100;
 
+// ratio: render resolution (capped at the display's); step: black hole ray-march
+// step scale (bigger = fewer steps); msaa: anti-aliasing samples.
 const QUALITY = {
-  HIGH: { ratio: 1.5, label: 'HIGH' },
-  MEDIUM: { ratio: 1.0, label: 'MEDIUM' },
-  LOW: { ratio: 0.7, label: 'LOW' },
+  HIGH: { ratio: 1.5, step: 1.0, msaa: 4, label: 'HIGH' },
+  MEDIUM: { ratio: 1.0, step: 1.4, msaa: 4, label: 'MEDIUM' },
+  LOW: { ratio: 0.7, step: 2.0, msaa: 2, label: 'LOW' },
 };
 
 const store = {
@@ -225,14 +227,21 @@ class MSAARenderPass extends Pass {
 
 const composerRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
 const composer = new EffectComposer(renderer, composerRT);
-composer.addPass(new MSAARenderPass(scene, camera));
+const scenePass = new MSAARenderPass(scene, camera);
+composer.addPass(scenePass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.45, 1.0);
 composer.addPass(bloom);
 const finalPass = new ShaderPass(FinalShader);   // also tone-maps: it's the last pass, drawn to the screen
 composer.addPass(finalPass);
 
 function applyQuality() {
-  const ratio = Math.min(window.devicePixelRatio || 1, QUALITY[qualityKey].ratio);
+  const q = QUALITY[qualityKey];
+  const ratio = Math.min(window.devicePixelRatio || 1, q.ratio);
+  blackHole.uniforms.uStepMul.value = q.step;
+  if (scenePass.target.samples !== q.msaa) {
+    scenePass.target.samples = q.msaa;
+    scenePass.target.dispose();   // re-created with the new sample count on next use
+  }
   renderer.setPixelRatio(ratio);
   composer.setPixelRatio(ratio);
   onResize();

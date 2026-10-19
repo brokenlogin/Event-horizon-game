@@ -90,6 +90,7 @@ uniform float uDiskIn;
 uniform float uDiskOut;
 uniform float uPx;
 uniform float uDiskGain;
+uniform float uStepMul;
 uniform sampler3D uNoise;
 uniform vec3 uNoiseMin;
 uniform vec3 uNoiseInvSize;
@@ -220,7 +221,7 @@ void main() {
     float r = length(p);
     float r5 = r * r * r * r * r;
     for (int i = 0; i < 260; i++) {
-      float stp = clamp((r - uRs) * 0.11 + r * 0.018, uRs * 0.006, uRs * 1.2);
+      float stp = clamp((r - uRs) * 0.11 + r * 0.018, uRs * 0.006, uRs * 1.2) * uStepMul;
       vec3 vh = v + (k / r5) * p * (0.5 * stp);
       vec3 np = p + vh * stp;
       float nr = length(np);
@@ -334,6 +335,7 @@ export function createBlackHole(renderer) {
     uDiskOut: { value: DISK_OUT },
     uPx: { value: 0.001 },
     uDiskGain: { value: 1.0 },
+    uStepMul: { value: 1.0 },   // ray-march step scale (graphics quality)
     uNoise: { value: null },
     uNoiseMin: { value: new THREE.Vector3() },
     uNoiseInvSize: { value: new THREE.Vector3() },
