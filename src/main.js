@@ -626,6 +626,7 @@ function startWave(n) {
 
 // The first time a new kind of enemy shows up in a run, the wave banner explains it.
 const NEW_CONTACT = {
+  warden: ['WARDEN', 'IT LAUNCHES SEEKER DRONES THAT RAM YOU · SHOOT THE DRONES BEFORE THEY REACH YOU'],
   lancer: ['LANCER', 'IT CHARGES A BEAM · WHEN ITS GREEN AIM LINE FLASHES, THRUST ACROSS IT TO DODGE'],
   sower: ['SOWER', 'IT SEEDS PROXIMITY MINES ALONG ITS ORBIT · SHOOT THEM FROM A DISTANCE'],
   aegis: ['AEGIS', 'IT SHIELDS NEARBY SHIPS (−90% DAMAGE) · TAKE IT OUT FIRST'],
@@ -732,6 +733,11 @@ function spawnEnemy(type) {
   e.trail.reset(pos);
   game.enemies.push(e);
   warpInFx(pos, vel);
+  // a warden arrives with a seeker already on its way, then settles into its usual rhythm
+  if (e.def.seekerEvery) {
+    wardenLaunch(e);
+    e.seekerTimer = rand(...e.def.seekerEvery);
+  }
 }
 
 function warpInFx(pos, vel) {
