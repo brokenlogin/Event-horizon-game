@@ -116,22 +116,23 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 
 | Input | Action |
 | --- | --- |
-| Mouse | Steer (pitch / yaw) |
+| Mouse or T / F / G / H | Steer (T = up, F = left, G = down, H = right) |
 | W / S, ↑ / ↓, or I / K | Main thruster / retro thruster |
 | A / D, ← / →, or J / L | Strafe left / right |
 | Space / Shift | Thrust up / down |
 | Z / C | Roll |
-| Left click | Fire cannons |
+| Left click, Ctrl, or 5 (including numpad) | Fire cannons (hold) |
 | E | Start a missile lock (keep the target near the crosshair for 1.5 s) |
 | Q | Fire a homing missile once locked (2 per wave on Normal, refilled each wave) |
 | B | Docking assist: the autopilot flies the rendezvous (any thrust key cancels). With a Dreadnought alive it parks you 600 m behind it instead |
 | F | Undock from the station |
-| Right mouse | Railgun (MK2 tech): hold to charge, release to fire |
+| Right mouse or 7 (including numpad) | Railgun (MK2 tech): hold to charge, release to fire |
+| 6 (including numpad) | Middle click (no in-game action) |
 | R | Afterburner (MK2 tech): 3 s of double engine power |
 | Y | Jump Drive (MK2 tech): jump to the opposite point of your orbit, halfway round the hole (45 s cooldown) |
 | N | Call the next wave early |
 | , / . | Time warp between waves: slower / faster through 1×, 2×, 3×, 5×, 10×. Only when no hostiles are around; it drops back to 1× 10 s before the next wave, or if any pilot is hit. In multiplayer it's shared: any pilot can change it, unless the host ticked HOST-ONLY TIME WARP in the waiting room |
-| T | Show / hide the performance counter: FPS, average and worst frame time, CPU time per frame, render resolution |
+| T (outside gameplay) | Show / hide the performance counter: FPS, average and worst frame time, CPU time per frame, render resolution |
 | Esc | Pause |
 
 ## Between waves

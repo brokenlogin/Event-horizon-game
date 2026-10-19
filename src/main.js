@@ -310,9 +310,11 @@ let hadLock = false;
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;   // typing a room code
   if (e.code === 'Escape' && techTree.visible) { techTree.close(); e.stopImmediatePropagation(); return; }
-  if (e.code === 'KeyT' && !e.repeat) togglePerf();
-  if (['Space', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyI', 'KeyJ', 'KeyK', 'KeyL', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
+  if (e.code === 'KeyT' && !e.repeat && state !== 'playing') togglePerf();
+  if (['Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'Digit5', 'Digit6', 'Digit7', 'Numpad5', 'Numpad6', 'Numpad7', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyI', 'KeyJ', 'KeyK', 'KeyL', 'KeyT', 'KeyG', 'KeyH', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
+  if (state === 'playing' && player.alive && !player.docked && (e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'Digit5' || e.code === 'Numpad5')) firing = true;
+  if (state === 'playing' && player.alive && !player.docked && !player.docking && game.levels.railgun && !e.repeat && (e.code === 'Digit7' || e.code === 'Numpad7')) railHeld = true;
   if (state === 'playing' && player.alive && !e.repeat) {
     const inDock = player.docked || player.docking;
     if (e.code === 'KeyE' && !inDock) missiles.pressLock();
@@ -328,7 +330,11 @@ window.addEventListener('keydown', (e) => {
   if ((e.code === 'KeyP' || (e.code === 'Escape' && document.pointerLockElement !== canvas)) && state === 'playing') pauseGame();
   else if ((e.code === 'KeyP' || e.code === 'Escape') && state === 'dead' && mp.spectating) setOverlay('pause');
 });
-window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  if (e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'Digit5' || e.code === 'Numpad5') firing = false;
+  if (e.code === 'Digit7' || e.code === 'Numpad7') releaseRail();
+});
 window.addEventListener('blur', () => { keys.clear(); firing = false; });
 
 document.addEventListener('mousemove', (e) => {
@@ -2191,6 +2197,19 @@ function updatePlayerControl(dt) {
     _apM.lookAt(_origin, ap.dir, _up);
     _apQ.setFromRotationMatrix(_apM);
     player.quat.rotateTowards(_apQ, 2.5 * dt);
+  }
+
+  if (state === 'playing' && player.alive && !player.docked && !player.docking) {
+    const aimX = (keys.has('KeyH') ? 1 : 0) - (keys.has('KeyF') ? 1 : 0);
+    const aimY = (keys.has('KeyT') ? 1 : 0) - (keys.has('KeyG') ? 1 : 0);
+    const aimStep = 1.5 * sensitivity * dt;
+    if (keys.has('KeyV')) {
+      head.lookYaw = THREE.MathUtils.clamp(head.lookYaw - aimX * aimStep, -2.3, 2.3);
+      head.lookPitch = THREE.MathUtils.clamp(head.lookPitch + aimY * aimStep * (invertY ? -1 : 1), -1.25, 0.95);
+    } else {
+      player.pendingYaw -= aimX * aimStep;
+      player.pendingPitch += aimY * aimStep * (invertY ? -1 : 1);
+    }
   }
 
   // --- rotation from mouse (smoothed) + roll ---
