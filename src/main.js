@@ -1636,6 +1636,9 @@ function toggleDockAssist() {
     dockAssist.captureR = CAPTURE_R;
     dockAssist.captureV = CAPTURE_V;
   }
+  // asking to dock lifts the just-undocked lockout (it only stops you drifting straight back in);
+  // otherwise the assist parks inside the 540 m clearance zone and never docks
+  if (!boss) player.needsClearance = false;
   dockAssist.engage();
   audio.beep(880, 0.08, 0.05, 'sine');
   setTimeout(() => audio.beep(1320, 0.1, 0.05, 'sine'), 80);

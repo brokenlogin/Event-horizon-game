@@ -11,7 +11,6 @@ import { buildStation } from './ships.js';
 // and your speed relative to it is low.
 // ---------------------------------------------------------------------------
 
-export const STATION_NAME = 'KEPLER STATION';
 export const DOCK_RANGE = 300;         // m from the station's centre
 export const STATION_SPEED = 145;      // m/s — a free orbit up there would be ~167 m/s
 export const DOCK_MAX_REL_SPEED = 40;  // m/s relative to the station
