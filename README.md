@@ -12,7 +12,7 @@ Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The 
 
 To use a different port: `./serve.sh 8080`.
 
-The **GRAPHICS** button on the main menu cycles three presets:
+The **GRAPHICS** button on the main menu (and in the pause menu, mid-run) cycles three presets:
 
 | Preset | Render resolution | Black hole ray-march steps | Anti-aliasing |
 |---|---|---|---|

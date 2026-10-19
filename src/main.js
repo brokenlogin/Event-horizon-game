@@ -245,7 +245,7 @@ function applyQuality() {
   renderer.setPixelRatio(ratio);
   composer.setPixelRatio(ratio);
   onResize();
-  document.getElementById('btn-quality').textContent = `GRAPHICS: ${QUALITY[qualityKey].label}`;
+  for (const id of ['btn-quality', 'btn-quality-pause']) document.getElementById(id).textContent = `GRAPHICS: ${QUALITY[qualityKey].label}`;
 }
 
 function onResize() {
@@ -3258,12 +3258,14 @@ bind('btn-dbg-launch', launchDebug);
 bind('btn-dbg-back', () => setOverlay('menu'));
 bind('btn-controls', () => { controlsReturn = 'menu'; setOverlay('controls'); });
 bind('btn-back', () => setOverlay(controlsReturn));
-bind('btn-quality', () => {
+function cycleQuality() {
   const order = ['HIGH', 'MEDIUM', 'LOW'];
   qualityKey = order[(order.indexOf(qualityKey) + 1) % order.length];
   store.set('eh_quality', qualityKey);
   applyQuality();
-});
+}
+bind('btn-quality', cycleQuality);
+bind('btn-quality-pause', cycleQuality);   // also from the pause menu, mid-run
 bind('btn-resume', resumeGame);
 bind('btn-quit', toMenu);
 bind('btn-retry', launch);
