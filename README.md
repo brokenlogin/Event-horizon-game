@@ -170,10 +170,10 @@ Everyone waits in the room's pilot list until the host presses **START**. Once a
 - `src/main.js`: game loop, player, waves, camera, post-processing
 - `src/enemies.js`: enemy AI
 - `src/missiles.js`: missile lock-on, guidance and detonation
-
 - `src/station.js`: the orbital station and docking
 - `src/wrecks.js`: salvageable wrecks and scrap
 - `src/stationui.js`: upgrade definitions and the docked shop UI
+- `favicon.svg`: the tab icon (a little black hole)
 - `src/net.js`: multiplayer links (LAN: PeerJS / WebRTC; REMOTE: WebSocket to the host's relay), room codes, clock sync
 - `serve.py`: local web server, plus the REMOTE relay and Cloudflare tunnel (`--remote`)
 - `src/remote.js`: the other pilot: physics-based prediction and smoothing
