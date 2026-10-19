@@ -207,7 +207,7 @@ export class HUD {
         const cls = `tmark ${e.type}${e === lockedEnemy ? ' locked' : ''}${hidden ? ' occluded' : ''}${e.shielded ? ' shielded' : ''}`;
         if (m.className !== cls) m.className = cls;
         css(m._hp, 'width', `${((e.hp / (e.maxHp || e.def.hp)) * 100).toFixed(1)}%`);
-        const label = hidden ? `${dist.toFixed(0)}m · BEHIND HOLE` : e.shielded ? `${dist.toFixed(0)}m · SHIELDED` : `${dist.toFixed(0)}m`;
+        const label = hidden ? `${dist.toFixed(0)}m · BEHIND SINGULARITY` : e.shielded ? `${dist.toFixed(0)}m · SHIELDED` : `${dist.toFixed(0)}m`;
         if (m._dist.textContent !== label) m._dist.textContent = label;
       } else {
         let a = this.arrowPool[ai];
