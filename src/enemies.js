@@ -13,7 +13,7 @@ export const ENEMY_DEFS = {
   warden: {
     hp: 9, accel: 24, turn: 1.0, engageRange: 1000, preferred: 230, approach: 30,
     fireRange: 520, boltSpeed: 150, burst: 1, burstGap: 0, cooldown: [1.6, 2.4], dmg: 9, spread: 5, aimError: 9,
-    seekerEvery: [14, 16], seekerRange: 1000,
+    seekerEvery: 15, seekerRange: 1000,   // s (±7%); custom ADVANCED can change it
     score: 300, trailColor: 0xd050ff, build: buildWarden,
   },
   seeker: {
@@ -118,6 +118,13 @@ shieldGeo.userData.shared = true;
 let nextNetId = 1;
 export function resetEnemyIds() { nextNetId = 1; }
 
+// Tuning from the custom difficulty's ADVANCED settings (main.js buildTune puts it on
+// game.tune). These are the standard values, used if a game has none.
+const STANDARD_TUNE = { speed: 1, thrust: 1, fire: {}, burst: {}, seekerEvery: ENEMY_DEFS.warden.seekerEvery, mineRate: 1 };
+const tuneOf = (game) => game.tune || STANDARD_TUNE;
+/** Seconds until a warden's next seeker launch (±7% so a group doesn't fire in step). */
+export function seekerInterval(game) { return tuneOf(game).seekerEvery * (0.93 + Math.random() * 0.14); }
+
 export class Enemy {
   constructor(type, scene, difficulty, netId, turretCount) {
     this.type = type;
@@ -211,7 +218,8 @@ export class Enemy {
         const [a, b] = def.cooldown;
         // the last lancer standing fires 40% faster
         const lone = this.type === 'lancer' && game.lancersAlive() === 1;
-        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.05) / (lone ? 1.4 : 1);
+        const rate = this.type === 'lancer' ? tuneOf(game).fire.lancer || 1 : 1;
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.05) / (lone ? 1.4 : 1) / rate;
       }
       return faceTarget;
     }
@@ -435,10 +443,11 @@ export class Enemy {
       } else if (t.engaged && t.fireTimer <= 0 && this.age > 3) {
         const barrel = _tmp.set(0, 0, -1).applyQuaternion(t.aimQuat);
         if (barrel.dot(aim) > 0.995) {
-          t.burstLeft = td.burst;
+          const tn = tuneOf(game);
+          t.burstLeft = tn.burst.turret ?? td.burst;
           t.burstTimer = 0;
           const [a, b] = td.cooldown;
-          t.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06);
+          t.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06) / (tn.fire.turret || 1);
           this.rollTurretAim(t);
         }
       }
@@ -497,7 +506,8 @@ export class Enemy {
     // pilot from any range, closes faster and fights from closer in
     const aggro = this.aggro > 0;
     if (aggro) this.aggro -= dt;
-    const accel = def.accel * (1 + this.difficulty * 0.05) * (aggro ? 1.25 : 1);
+    const tn = tuneOf(game);
+    const accel = def.accel * (1 + this.difficulty * 0.05) * (aggro ? 1.25 : 1) * tn.thrust;
 
     let faceTarget = null;
     const rp = periapsisEstimate(this.pos, this.vel);
@@ -541,13 +551,13 @@ export class Enemy {
     } else if (engaged) {
       if (def.seeker) {
         // pure pursuit with relative-velocity steering; it overshoots and can be dodged
-        _des.copy(dirP).multiplyScalar(def.approach + this.difficulty * 3);
+        _des.copy(dirP).multiplyScalar((def.approach + this.difficulty * 3) * tn.speed);
         _des.sub(_rel).multiplyScalar(1.2).add(gDiff);
         this.thrust.copy(_des).clampLength(0, accel);
         faceTarget = _tmp2.copy(player.pos);
       } else {
         const preferred = def.preferred * (aggro ? 0.6 : 1);
-        const closing = THREE.MathUtils.clamp((dist - preferred) * 0.3, -30, def.approach * (aggro ? 1.8 : 1));
+        const closing = THREE.MathUtils.clamp((dist - preferred) * 0.3, -30 * tn.speed, def.approach * (aggro ? 1.8 : 1) * tn.speed);
         _des.copy(dirP).multiplyScalar(closing);
         // jink sideways so they're harder to hit
         _up.set(0, 1, 0).applyQuaternion(this.quat);
@@ -584,7 +594,7 @@ export class Enemy {
       this.fireTimer -= dt;
       if (this.fireTimer <= 0 && player.alive && dist < def.mineRange && this.age > 2) {
         const [a, b] = def.mineEvery;
-        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04) / tn.mineRate;
         game.layMine(this);
       }
     }
@@ -599,14 +609,14 @@ export class Enemy {
         this.burstTimer -= dt;
         if (this.burstTimer <= 0) {
           this.burstLeft--;
-          this.burstTimer = def.burstGap;
+          this.burstTimer = def.burstGap || 0.15;   // (wardens normally fire single shots)
           game.enemyFire(this);
         }
       } else if (this.fireTimer <= 0 && aligned && dist < def.fireRange && this.age > 1.5) {
-        this.burstLeft = def.burst;
+        this.burstLeft = tn.burst[this.type] ?? def.burst;
         this.burstTimer = 0;
         const [a, b] = def.cooldown;
-        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06);
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06) / (tn.fire[this.type] || 1);
         this.rollAim();
       }
     }
@@ -615,8 +625,7 @@ export class Enemy {
     if (def.seekerEvery && engaged && !blocked && dist < def.seekerRange && this.age > 3) {
       this.seekerTimer -= dt;
       if (this.seekerTimer <= 0) {
-        const [a, b] = def.seekerEvery;
-        this.seekerTimer = a + Math.random() * (b - a);
+        this.seekerTimer = seekerInterval(game);
         game.wardenLaunch(this);
       }
     }

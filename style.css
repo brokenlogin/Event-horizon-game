@@ -534,10 +534,17 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 
 /* custom difficulty editor */
 #custom-diff { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 4, 10, 0.7); pointer-events: auto; }
-.cd-card { max-width: 560px; }
+.cd-card { max-width: 600px; max-height: 92vh; overflow-y: auto; }
 .cd-rows { display: flex; flex-direction: column; gap: 12px; width: 100%; }
-.cd-row { display: grid; grid-template-columns: 150px 1fr 92px; align-items: center; gap: 14px; }
+.cd-row { display: grid; grid-template-columns: 180px 1fr 112px; align-items: center; gap: 14px; }
 .cd-name { font-family: var(--font-display); font-size: 11px; letter-spacing: 3px; color: #d9f6ff; text-align: left; }
+.cd-name small { display: block; margin-top: 3px; font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.5px; color: rgba(217, 246, 255, 0.5); }
+.cd-adv-toggle { pointer-events: auto; cursor: pointer; align-self: flex-start; margin-top: 4px; padding: 6px 0; font-family: var(--font-display); font-size: 12px; letter-spacing: 4px; color: var(--cyan); background: none; border: none; }
+.cd-adv-toggle:hover { color: #fff; }
+.cd-adv-toggle span { margin-left: 8px; color: var(--orange); letter-spacing: 2px; }
+.cd-adv { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; border-top: 1px solid var(--cyan-faint); }
+.cd-group { margin-top: 8px; font-family: var(--font-display); font-size: 10px; letter-spacing: 3px; color: var(--orange); text-align: left; }
+.cd-adv .btn { align-self: flex-start; pointer-events: auto; min-width: 0; padding: 8px 18px; }
 .cd-row input[type="range"] { pointer-events: auto; width: 100%; accent-color: var(--cyan); }
 .cd-num { display: flex; align-items: center; gap: 4px; font-family: var(--font-display); font-size: 12px; color: rgba(217, 246, 255, 0.7); }
 .cd-num input { pointer-events: auto; width: 64px; padding: 6px 6px; font-family: var(--font-display); font-size: 13px; text-align: right; color: #fff; background: rgba(5, 20, 32, 0.7); border: 1px solid var(--cyan-dim); outline: none; }

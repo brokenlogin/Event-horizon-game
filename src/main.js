@@ -14,7 +14,7 @@ import { createBlackHole } from './blackhole.js';
 import { buildPlayerShip, setLoadout, buildMissile, buildWreck, shareGeometry } from './ships.js';
 import { buildCockpit, drawCockpit, updateCockpitLamp, updateCockpitControls, EYE } from './cockpit.js';
 import { BoltPool, Particles, Trail, createDust } from './fx.js';
-import { Enemy, ENEMY_DEFS, resetEnemyIds } from './enemies.js';
+import { Enemy, ENEMY_DEFS, resetEnemyIds, seekerInterval } from './enemies.js';
 import { GameAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { MissileSystem } from './missiles.js';
@@ -409,20 +409,52 @@ const CUSTOM_FIELDS = [
   { key: 'hp', name: 'ENEMY HEALTH', min: 10, max: 1000 },
   { key: 'price', name: 'UPGRADE PRICES', min: 0, max: 1000 },
 ];
+// ADVANCED: finer tuning. Each slider covers its whole range; `def` is the standard game.
+const ADV_FIELDS = [
+  { group: 'ENEMY SPAWNS (SHARE OF THE USUAL NUMBER)' },
+  { key: 'n_raider', name: 'RAIDERS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
+  { key: 'n_warden', name: 'WARDENS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
+  { key: 'n_lancer', name: 'LANCERS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
+  { key: 'n_sower', name: 'SOWERS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
+  { key: 'n_aegis', name: 'AEGIS', min: 0, max: 500, step: 10, def: 100, unit: '%' },
+  { group: 'DREADNOUGHT' },
+  { key: 'bossEvery', name: 'ARRIVES EVERY', min: 0, max: 15, step: 1, def: 5, unit: 'waves', hint: '0 = never' },
+  { key: 'bossHp', name: 'HULL STRENGTH', min: 25, max: 500, step: 25, def: 100, unit: '%' },
+  { key: 'f_turret', name: 'TURRET FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
+  { key: 'b_turret', name: 'TURRET BURST', min: 1, max: 10, step: 1, def: 3, unit: 'shots' },
+  { group: 'ENEMY BEHAVIOUR' },
+  { key: 'speed', name: 'ENEMY SPEED', min: 25, max: 300, step: 5, def: 100, unit: '%', hint: 'how fast they close in' },
+  { key: 'thrust', name: 'ENEMY THRUST', min: 25, max: 300, step: 5, def: 100, unit: '%', hint: 'how hard they accelerate' },
+  { key: 'aggroEvery', name: 'HUNTING PARTY EVERY', min: 5, max: 120, step: 5, def: 25, unit: 's' },
+  { key: 'aggroShare', name: 'HUNTING PARTY SIZE', min: 0, max: 100, step: 5, def: 33, unit: '%', hint: 'share of the wave; 0 = none' },
+  { group: 'ENEMY WEAPONS' },
+  { key: 'f_raider', name: 'RAIDER FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
+  { key: 'b_raider', name: 'RAIDER BURST', min: 1, max: 10, step: 1, def: 3, unit: 'shots' },
+  { key: 'f_warden', name: 'WARDEN FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
+  { key: 'b_warden', name: 'WARDEN BURST', min: 1, max: 10, step: 1, def: 1, unit: 'shots' },
+  { key: 'seekerEvery', name: 'WARDEN SEEKER EVERY', min: 3, max: 60, step: 1, def: 15, unit: 's' },
+  { key: 'f_lancer', name: 'LANCER FIRE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
+  { key: 'mineRate', name: 'SOWER MINE RATE', min: 25, max: 400, step: 25, def: 100, unit: '%' },
+  { group: 'WORLD' },
+  { key: 'stationSpeed', name: 'STATION ORBIT SPEED', min: 100, max: 167, step: 1, def: 145, unit: 'm/s', hint: 'a free orbit there is ~167 m/s' },
+];
+const ADV_KEYS = ADV_FIELDS.filter((f) => f.key);
+const fieldOf = (key) => CUSTOM_FIELDS.find((f) => f.key === key) || ADV_KEYS.find((f) => f.key === key);
 function sanitizeCustom(c) {
   const out = {};
-  for (const f of CUSTOM_FIELDS) {
+  for (const f of [...CUSTOM_FIELDS, ...ADV_KEYS]) {
     const v = Number((c || {})[f.key]);
-    out[f.key] = Number.isFinite(v) ? THREE.MathUtils.clamp(Math.round(v), f.min, f.max) : 100;
+    out[f.key] = Number.isFinite(v) ? THREE.MathUtils.clamp(Math.round(v), f.min, f.max) : (f.def ?? 100);
   }
   out.fpv = !!(c || {}).fpv;   // first-person view
   return out;
 }
+const advChanged = (c) => ADV_KEYS.some((f) => c[f.key] !== f.def);
 let customDiff = sanitizeCustom(store.get('eh_custom', {}));   // this player's custom settings
 function customDef(c) {
   return {
     name: 'CUSTOM', missiles: 2, dmg: c.dmg / 100, count: c.count / 100, hp: c.hp / 100, price: c.price / 100,
-    desc: `Enemies ${c.count}% · damage ${c.dmg}% · health ${c.hp}% · prices ${c.price}% · 2 missiles${c.fpv ? ' · first person' : ''}`,
+    desc: `Enemies ${c.count}% · damage ${c.dmg}% · health ${c.hp}% · prices ${c.price}% · 2 missiles${c.fpv ? ' · first person' : ''}${advChanged(c) ? ' · advanced tuning' : ''}`,
   };
 }
 const diffInfo = (d, c = customDiff) => (d === 'custom' ? customDef(c) : DIFFICULTIES[d]);
@@ -432,6 +464,27 @@ game.difficulty = difficulty;                                              // wh
 game.custom = customDiff;                                                  // its custom numbers (the host's in multiplayer)
 const diffDef = () => diffInfo(game.difficulty, game.custom);
 /** First-person view: a custom-difficulty option (the host's choice in multiplayer). */
+/**
+ * The run's tuning: the custom difficulty's ADVANCED settings, or the standard values.
+ * Enemies read it through game.tune (see enemies.js); waves, hunting parties, the
+ * Dreadnought and the station read it here.
+ */
+function buildTune(c) {
+  const t = c || sanitizeCustom({});
+  const pct = (k) => t[k] / 100;
+  return {
+    count: { raider: pct('n_raider'), warden: pct('n_warden'), lancer: pct('n_lancer'), sower: pct('n_sower'), aegis: pct('n_aegis') },
+    bossEvery: t.bossEvery, bossHp: pct('bossHp'),
+    speed: pct('speed'), thrust: pct('thrust'),
+    aggroEvery: t.aggroEvery,
+    aggroShare: t.aggroShare === 33 ? 1 / 3 : t.aggroShare / 100,   // the standard game sends exactly a third
+    fire: { raider: pct('f_raider'), warden: pct('f_warden'), lancer: pct('f_lancer'), turret: pct('f_turret') },
+    burst: { raider: t.b_raider, warden: t.b_warden, turret: t.b_turret },
+    seekerEvery: t.seekerEvery, mineRate: pct('mineRate'),
+    stationSpeed: t.stationSpeed,
+  };
+}
+game.tune = buildTune(null);
 const firstPerson = () => game.difficulty === 'custom' && !!game.custom.fpv;
 const bestKey = (d) => (d === 'normal' ? 'eh_best' : `eh_best_${d}`);
 let best = store.get(bestKey(difficulty), 0);
@@ -567,7 +620,7 @@ function scaleEnemyHp(e) { e.hp = e.maxHp = e.def.hp * diffDef().hp; }
 // Every fifth wave a dreadnought (boss) takes up a low orbit, with a lighter escort.
 const BOSS_EVERY = 5;
 const BOSS_ORBIT = 1350;
-const isBossWave = (n) => n > 0 && n % BOSS_EVERY === 0;
+const isBossWave = (n) => n > 0 && game.tune.bossEvery > 0 && n % game.tune.bossEvery === 0;   // (custom: 0 = never)
 
 /** Enemies that have to die to clear a wave (mines don't count). */
 function hostileCount() {
@@ -583,21 +636,22 @@ const isSeekerType = (t) => t === 'seeker' || t === 'seeker2';
 function waveComposition(n) {
   const list = [];
   const k = enemyScale() * diffDef().count;   // crew size × difficulty
+  const c = game.tune.count;                  // per type (custom ADVANCED; 1 normally)
   if (isBossWave(n)) {
-    const raiders = Math.max(1, Math.round(Math.min(2 + n, 9) * k * 0.4));
-    const lancers = n >= 10 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k * 0.4) : 0;
+    const raiders = c.raider > 0 ? Math.max(1, Math.round(Math.min(2 + n, 9) * k * 0.4 * c.raider)) : 0;
+    const lancers = n >= 10 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k * 0.4 * c.lancer) : 0;
     for (let i = 0; i < raiders; i++) list.push('raider');
     for (let i = 0; i < lancers; i++) list.push('lancer');
     for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
     list.unshift('dread');   // the fortress arrives first
     return list;
   }
-  const raiders = Math.round(Math.min(2 + n, 9) * k);
-  const wardens = n >= 3 ? Math.round(Math.min(Math.floor((n - 1) / 2), 4) * k) : 0;
+  const raiders = Math.round(Math.min(2 + n, 9) * k * c.raider);
+  const wardens = n >= 3 ? Math.round(Math.min(Math.floor((n - 1) / 2), 4) * k * c.warden) : 0;
   // after the first boss, new types join one at a time
-  const lancers = n >= 6 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k) : 0;       // 6: 1, 8: 2 … up to 4
-  const sowers = n >= 8 ? Math.round(Math.min(Math.floor((n - 6) / 2), 3) * k) : 0;        // 8: 1, 10: 2 … up to 3
-  const aegis = n >= 11 ? Math.round(Math.min(1 + Math.floor((n - 11) / 4), 2) * k) : 0;   // 11: 1, 15: 2
+  const lancers = n >= 6 ? Math.round(Math.min(Math.floor((n - 4) / 2), 4) * k * c.lancer) : 0;       // 6: 1, 8: 2 … up to 4
+  const sowers = n >= 8 ? Math.round(Math.min(Math.floor((n - 6) / 2), 3) * k * c.sower) : 0;        // 8: 1, 10: 2 … up to 3
+  const aegis = n >= 11 ? Math.round(Math.min(1 + Math.floor((n - 11) / 4), 2) * k * c.aegis) : 0;   // 11: 1, 15: 2
   for (let i = 0; i < raiders; i++) list.push('raider');
   // (seekers don't come in waves: wardens and the dreadnought launch them)
   for (let i = 0; i < wardens; i++) list.push('warden');
@@ -681,7 +735,7 @@ function spawnBoss(e) {
   const appearance = bossAppearance();
   e.appearance = appearance;
   const grow = 1 + 0.3 * (appearance - 1);
-  e.maxHp = e.hp = Math.round(e.def.hp * enemyScale() * grow * diffDef().hp);
+  e.maxHp = e.hp = Math.round(e.def.hp * enemyScale() * grow * diffDef().hp * game.tune.bossHp);
   const turretHp = e.def.turret.hp * (1 + 0.5 * (pilotCount() - 1)) * grow * diffDef().hp;
   for (const t of e.turrets) t.hp = t.maxHp = turretHp;
   e.mesh.position.copy(pos);
@@ -702,7 +756,7 @@ function bossWarpFx(e) {
 }
 
 /** Which appearance of the dreadnought this is (1st, 2nd …), from the wave number. */
-const bossAppearance = (wave = game.wave) => Math.max(1, Math.round(wave / BOSS_EVERY));
+const bossAppearance = (wave = game.wave) => Math.max(1, Math.round(wave / (game.tune.bossEvery || BOSS_EVERY)));
 /** Later fortresses carry more guns: 6, 8, 10, then 12 turrets. */
 const bossTurretCount = (wave) => Math.min(12, 6 + 2 * (bossAppearance(wave) - 1));
 
@@ -736,7 +790,7 @@ function spawnEnemy(type) {
   // a warden arrives with a seeker already on its way, then settles into its usual rhythm
   if (e.def.seekerEvery) {
     wardenLaunch(e);
-    e.seekerTimer = rand(...e.def.seekerEvery);
+    e.seekerTimer = seekerInterval(game);
   }
 }
 
@@ -1957,6 +2011,7 @@ function startGame(opts = {}) {
     debug: !!opts.debug,
     difficulty: validDifficulty(multiplayer ? mp.difficulty : difficulty),
     custom: multiplayer ? { ...mp.custom } : { ...customDiff },
+    tune: buildTune(validDifficulty(multiplayer ? mp.difficulty : difficulty) === 'custom' ? (multiplayer ? mp.custom : customDiff) : null),
     // in multiplayer the host runs the waves; guests follow its clock
     score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 12 : 10, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
@@ -1984,7 +2039,7 @@ function startGame(opts = {}) {
   resetAbilities();
   game.seenTypes = new Set();
   mp.deadIds.clear();
-  station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0);   // thruster-held, a little under orbital speed
+  station.reset(STATION_RADIUS, START_NORMAL, STATION_PHASE0, game.tune.stationSpeed);   // thruster-held, a little under orbital speed
   if (multiplayer) syncStation();
   // every run starts in your own docking clamp at Kepler Station, and launches from it
   station.beginDock(player, myClamp());
@@ -2111,23 +2166,36 @@ function renderDifficulty() {
 // Custom difficulty editor
 // ---------------------------------------------------------------------------
 const customEl = document.getElementById('custom-diff');
+let advOpen = false;
+// the four main sliders cover 50–150% (the boxes go further); ADVANCED sliders cover their whole range
+const sliderRange = (f) => (f.def === undefined ? [50, 150, 5] : [f.min, f.max, f.step]);
+function customRow(f) {
+  const v = customDiff[f.key];
+  const [lo, hi, step] = sliderRange(f);
+  const hint = f.hint ? `<small>${f.hint}</small>` : '';
+  return `<div class="cd-row"><span class="cd-name">${f.name}${hint}</span>`
+    + `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${THREE.MathUtils.clamp(v, lo, hi)}" data-key="${f.key}">`
+    + `<label class="cd-num"><input type="number" min="${f.min}" max="${f.max}" step="1" value="${v}" data-key="${f.key}">${f.unit || '%'}</label></div>`;
+}
 function renderCustomEditor() {
-  document.getElementById('cd-rows').innerHTML = CUSTOM_FIELDS.map((f) => {
-    const v = customDiff[f.key];
-    return `<div class="cd-row"><span class="cd-name">${f.name}</span>`
-      + `<input type="range" min="50" max="150" step="5" value="${THREE.MathUtils.clamp(v, 50, 150)}" data-key="${f.key}">`
-      + `<label class="cd-num"><input type="number" min="${f.min}" max="${f.max}" step="1" value="${v}" data-key="${f.key}">%</label></div>`;
-  }).join('')
+  document.getElementById('cd-rows').innerHTML = CUSTOM_FIELDS.map(customRow).join('')
     + `<div class="cd-row cd-toggle"><span class="cd-name">FIRST PERSON VIEW</span>`
     + `<span class="cd-hint">Fly from the cockpit instead of behind the ship</span>`
-    + `<button id="cd-fpv" class="btn small${customDiff.fpv ? ' on' : ''}">${customDiff.fpv ? 'ON' : 'OFF'}</button></div>`;
+    + `<button id="cd-fpv" class="btn small${customDiff.fpv ? ' on' : ''}">${customDiff.fpv ? 'ON' : 'OFF'}</button></div>`
+    + `<button id="cd-adv-toggle" class="cd-adv-toggle${advOpen ? ' open' : ''}">ADVANCED ${advOpen ? '▾' : '▸'}`
+    + `${advChanged(customDiff) ? '<span>· CHANGED</span>' : ''}</button>`
+    + (advOpen ? `<div class="cd-adv">${ADV_FIELDS.map((f) => (f.group ? `<div class="cd-group">${f.group}</div>` : customRow(f))).join('')}`
+      + '<button id="cd-adv-reset" class="btn small">RESET ADVANCED</button></div>' : '');
 }
 function setCustom(key, value, fromSlider) {
   customDiff = sanitizeCustom({ ...customDiff, [key]: value });
   store.set('eh_custom', customDiff);
   const row = customEl.querySelector(`input[type="range"][data-key="${key}"]`).closest('.cd-row');
+  const [lo, hi] = sliderRange(fieldOf(key));
   if (fromSlider) row.querySelector('input[type="number"]').value = customDiff[key];
-  else row.querySelector('input[type="range"]').value = THREE.MathUtils.clamp(customDiff[key], 50, 150);
+  else row.querySelector('input[type="range"]').value = THREE.MathUtils.clamp(customDiff[key], lo, hi);
+  const flag = customEl.querySelector('#cd-adv-toggle');
+  if (flag && !!flag.querySelector('span') !== advChanged(customDiff)) flag.innerHTML = `ADVANCED ${advOpen ? '▾' : '▸'}${advChanged(customDiff) ? '<span>· CHANGED</span>' : ''}`;
   if (net.isHost) broadcastRoster();
   renderDifficulty();
 }
@@ -2151,6 +2219,20 @@ customEl.addEventListener('click', (e) => {
   if (e.target.closest('#cd-fpv')) {
     audio.uiClick();
     customDiff = sanitizeCustom({ ...customDiff, fpv: !customDiff.fpv });
+    store.set('eh_custom', customDiff);
+    renderCustomEditor();
+    if (net.isHost) broadcastRoster();
+    renderDifficulty();
+  }
+  if (e.target.closest('#cd-adv-toggle')) {
+    audio.uiClick();
+    advOpen = !advOpen;
+    renderCustomEditor();
+  }
+  if (e.target.closest('#cd-adv-reset')) {
+    audio.uiClick();
+    const basics = Object.fromEntries([...CUSTOM_FIELDS.map((f) => f.key), 'fpv'].map((k) => [k, customDiff[k]]));
+    customDiff = sanitizeCustom(basics);
     store.set('eh_custom', customDiff);
     renderCustomEditor();
     if (net.isHost) broadcastRoster();
@@ -2974,7 +3056,7 @@ function tick(rawDt, render) {
         // the next hunting party comes early once the last one has been shot down
         const partyDown = game.aggroParty && !game.enemies.some((e) => e.alive && e.aggro > 0);
         if (game.aggroTimer <= 0 || partyDown) {
-          game.aggroTimer = AGGRO_EVERY;
+          game.aggroTimer = game.tune.aggroEvery;
           game.aggroParty = pickAggressors() > 0;
         }
       }
@@ -3336,18 +3418,18 @@ function alivePilots() {
 }
 
 /**
- * Every AGGRO_EVERY s of a wave (or as soon as the last party is all shot down), a
+ * Every game.tune.aggroEvery s (25 normally) of a wave (or as soon as the last party is all shot down), a
  * third of it turns aggressive for that long: those hunt their pilot from any range and
  * close in hard, so a few are always on you but never the whole wave. In multiplayer the third is shared evenly between the pilots
  * who are out flying, each taking the hostiles nearest to them. Host / solo.
  */
-const AGGRO_EVERY = 25;
 /** Returns how many hostiles were sent. */
 function pickAggressors() {
   const pool = game.enemies.filter((e) => e.alive && !e.proxy && !e.def.boss && !e.def.inert && !e.def.support && !e.def.seeker);
   const pilots = alivePilots().filter((p) => !p.docked && !p.docking);
-  if (!pool.length || !pilots.length) return 0;
-  const total = Math.min(pool.length, Math.max(2, Math.round(pool.length / 3)));
+  const share = game.tune.aggroShare;
+  if (!pool.length || !pilots.length || share <= 0) return 0;
+  const total = Math.min(pool.length, Math.max(2, Math.round(pool.length * share)));
   const quota = Math.ceil(total / pilots.length);
   let left = total;
   for (const p of pilots) {
@@ -3355,7 +3437,7 @@ function pickAggressors() {
     pool.sort((a, b) => a.pos.distanceToSquared(p.pos) - b.pos.distanceToSquared(p.pos));
     const take = pool.splice(0, Math.min(quota, left));
     left -= take.length;
-    for (const e of take) { e.aggro = AGGRO_EVERY; e.aggroTarget = p; }
+    for (const e of take) { e.aggro = game.tune.aggroEvery; e.aggroTarget = p; }
     if (p === player) hud.notice(`⚠ ${take.length} HOSTILE${take.length === 1 ? '' : 'S'} CLOSING IN`, 'orange');
     else if (game.mp) for (const [id, r] of remotes) if (r === p) net.sendEvent({ k: 'aggro', n: take.length }, id);
   }
