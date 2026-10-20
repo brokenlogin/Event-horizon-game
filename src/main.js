@@ -448,6 +448,7 @@ function sanitizeCustom(c) {
     out[f.key] = Number.isFinite(v) ? THREE.MathUtils.clamp(Math.round(v), f.min, f.typeMax ?? f.max) : (f.def ?? 100);
   }
   out.fpv = !!(c || {}).fpv;   // first-person view
+  out.easyBoss = !!(c || {}).easyBoss;   // easier dreadnought: no raider bay, milder when crippled
   return out;
 }
 const advChanged = (c) => ADV_KEYS.some((f) => c[f.key] !== f.def);
@@ -455,7 +456,7 @@ let customDiff = sanitizeCustom(store.get('eh_custom', {}));   // this player's 
 function customDef(c) {
   return {
     name: 'CUSTOM', missiles: 2, dmg: c.dmg / 100, count: c.count / 100, hp: c.hp / 100, price: c.price / 100,
-    desc: `Enemies ${c.count}% · damage ${c.dmg}% · health ${c.hp}% · prices ${c.price}% · 2 missiles${c.fpv ? ' · first person' : ''}${advChanged(c) ? ' · advanced tuning' : ''}`,
+    desc: `Enemies ${c.count}% · damage ${c.dmg}% · health ${c.hp}% · prices ${c.price}% · 2 missiles${c.fpv ? ' · first person' : ''}${c.easyBoss ? ' · easier Dreadnought' : ''}${advChanged(c) ? ' · advanced tuning' : ''}`,
   };
 }
 const diffInfo = (d, c = customDiff) => (d === 'custom' ? customDef(c) : DIFFICULTIES[d]);
@@ -483,6 +484,7 @@ function buildTune(c) {
     burst: { raider: t.b_raider, warden: t.b_warden, turret: t.b_turret },
     seekerEvery: t.seekerEvery, mineRate: pct('mineRate'),
     stationSpeed: t.stationSpeed,
+    easyBoss: !!t.easyBoss,
   };
 }
 game.tune = buildTune(null);
@@ -884,12 +886,12 @@ function bossHurt(e) {
   if (game.mp) net.sendEvent({ k: 'bossHurt' });
 }
 function bossHurtNotice() {
-  hud.notice('⚠ DREADNOUGHT CRIPPLED · SEEKER LAUNCHES DOUBLED', 'red');
+  hud.notice(`⚠ DREADNOUGHT CRIPPLED · SEEKER LAUNCHES ${game.tune.easyBoss ? 'QUICKEN' : 'DOUBLED'}`, 'red');
   audio.alarm();
 }
 
 function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2) {
-  const cap = (e.hurt ? 3 : 2) * volley;   // two volleys' worth in flight at most (three once it's crippled)
+  const cap = (e.hurt && !game.tune.easyBoss ? 3 : 2) * volley;   // two volleys' worth in flight at most (three once it's crippled)
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
@@ -2235,10 +2237,12 @@ function customRow(f) {
     + `<label class="cd-num"><input type="number" min="${f.min}" max="${f.typeMax ?? f.max}" step="1" value="${v}" data-key="${f.key}">${f.unit || '%'}</label></div>`;
 }
 function renderCustomEditor() {
+  const toggle = (key, name, hint) => `<div class="cd-row cd-toggle"><span class="cd-name">${name}</span>`
+    + `<span class="cd-hint">${hint}</span>`
+    + `<button data-toggle="${key}" class="btn small${customDiff[key] ? ' on' : ''}">${customDiff[key] ? 'ON' : 'OFF'}</button></div>`;
   document.getElementById('cd-rows').innerHTML = CUSTOM_FIELDS.map(customRow).join('')
-    + `<div class="cd-row cd-toggle"><span class="cd-name">FIRST PERSON VIEW</span>`
-    + `<span class="cd-hint">Fly from the cockpit instead of behind the ship</span>`
-    + `<button id="cd-fpv" class="btn small${customDiff.fpv ? ' on' : ''}">${customDiff.fpv ? 'ON' : 'OFF'}</button></div>`
+    + toggle('fpv', 'FIRST PERSON VIEW', 'Fly from the cockpit instead of behind the ship')
+    + toggle('easyBoss', 'EASIER DREADNOUGHT', 'No raiders from its launch bay, and its seeker volleys speed up less when it\'s crippled')
     + `<button id="cd-adv-toggle" class="cd-adv-toggle${advOpen ? ' open' : ''}">ADVANCED ${advOpen ? '▾' : '▸'}`
     + `${advChanged(customDiff) ? '<span>· CHANGED</span>' : ''}</button>`
     + (advOpen ? `<div class="cd-adv">${ADV_FIELDS.map((f) => (f.group ? `<div class="cd-group">${f.group}</div>` : customRow(f))).join('')}`
@@ -2274,9 +2278,11 @@ customEl.addEventListener('keydown', (e) => { if (e.code === 'Enter' && e.target
 customEl.addEventListener('click', (e) => {
   e.stopPropagation();
   if (e.target.closest('#cd-done') || e.target === customEl) { audio.uiClick(); closeCustomEditor(); }
-  if (e.target.closest('#cd-fpv')) {
+  const tog = e.target.closest('[data-toggle]');
+  if (tog) {
     audio.uiClick();
-    customDiff = sanitizeCustom({ ...customDiff, fpv: !customDiff.fpv });
+    const key = tog.dataset.toggle;
+    customDiff = sanitizeCustom({ ...customDiff, [key]: !customDiff[key] });
     store.set('eh_custom', customDiff);
     renderCustomEditor();
     if (net.isHost) broadcastRoster();
@@ -2289,7 +2295,7 @@ customEl.addEventListener('click', (e) => {
   }
   if (e.target.closest('#cd-adv-reset')) {
     audio.uiClick();
-    const basics = Object.fromEntries([...CUSTOM_FIELDS.map((f) => f.key), 'fpv'].map((k) => [k, customDiff[k]]));
+    const basics = Object.fromEntries([...CUSTOM_FIELDS.map((f) => f.key), 'fpv', 'easyBoss'].map((k) => [k, customDiff[k]]));
     customDiff = sanitizeCustom(basics);
     store.set('eh_custom', customDiff);
     renderCustomEditor();

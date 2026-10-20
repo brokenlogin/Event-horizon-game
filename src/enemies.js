@@ -59,7 +59,8 @@ export const ENEMY_DEFS = {
     },
     // seeker launcher: a pair (one per tube) per volley, flung out to the sides to flank
     launchCooldown: [6, 8], launchRange: 2200,
-    hurtLaunchRate: 2,   // below half hull it launches volleys twice as often
+    hurtLaunchRate: 2,   // below half hull it launches volleys twice as often…
+    easyHurtLaunchRate: 1.3,   // …or 30% more often with the custom EASIER DREADNOUGHT
     // launch bay: a raider every 12 s while a pilot is within launchRange
     raiderEvery: 12, maxRaiders: 6,
     // spinal railgun, like a lancer's but heavier and much wider: tracks, locks (aim line flashes), fires
@@ -404,11 +405,11 @@ export class Enemy {
       if (ok) launched = game.bossVolley(this);
       if (launched) {
         const [a, b] = def.launchCooldown;
-        this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04) / (this.hurt ? def.hurtLaunchRate : 1);
+        this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04) / (this.hurt ? (tuneOf(game).easyBoss ? def.easyHurtLaunchRate : def.hurtLaunchRate) : 1);
       } else this.launchTimer = ok ? 2 : 1;
     }
     // launch bay: a raider while a pilot is close
-    if (hunting && dist < def.launchRange && !blocked && this.age > 4 && (this.raiderTimer -= dt) <= 0) {
+    if (!tuneOf(game).easyBoss && hunting && dist < def.launchRange && !blocked && this.age > 4 && (this.raiderTimer -= dt) <= 0) {
       this.raiderTimer = def.raiderEvery;
       game.bossRaider(this);
     }

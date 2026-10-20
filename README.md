@@ -77,7 +77,7 @@ Pick it on the main menu, above LAUNCH:
 | Normal | standard | standard | 2 |
 | Hard | +35% | +30% | 1 |
 
-**Custom:** pick CUSTOM to open an editor with four sliders: **enemy count, enemy damage, enemy health and upgrade prices**. The sliders cover 50–150%, and the number boxes take anything from 10–1000% (count and health) or 0–1000% (damage and prices). Custom keeps Normal's 2 missiles, and your settings are remembered. Click CUSTOM again to edit them. In multiplayer the host's custom numbers apply to everyone.
+**Custom:** pick CUSTOM to open an editor with four sliders: **enemy count, enemy damage, enemy health and upgrade prices**. The sliders cover 50–150%, and the number boxes take anything from 10–1000% (count and health) or 0–1000% (damage and prices). Two switches sit under the sliders: **First person view**, and **Easier Dreadnought**, which shuts its raider launch bay and makes its seeker volleys only 30% faster (not twice as fast) once it's below half hull. Custom keeps Normal's 2 missiles, and your settings are remembered. Click CUSTOM again to edit them. In multiplayer the host's custom numbers apply to everyone.
 
 **Custom → ADVANCED** opens a second set of sliders (standard values in brackets):
 
