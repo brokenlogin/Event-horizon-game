@@ -3151,7 +3151,7 @@ function tick(rawDt, render) {
           game.aggroTimer = game.tune.aggroEvery;
           game.aggroParty = pickAggressors() > 0;
         }
-        // stragglers: once a wave is down to its last few (or has dragged on for 15 min),
+        // stragglers: once a wave is down to its last few (or has dragged on for 8 min),
         // everything left hunts the nearest pilot for good, so a wave can't stall
         game.waveAge += dt;
         if (!game.spawnQueue.length && (hostileCount() <= STRAGGLERS || game.waveAge > STRAGGLER_TIME)) huntStragglers();
@@ -3521,7 +3521,7 @@ function alivePilots() {
  * who are out flying, each taking the hostiles nearest to them. Host / solo.
  */
 const STRAGGLERS = 3;          // hostiles left when the rest all turn on you
-const STRAGGLER_TIME = 15 * 60; // s into a wave when everything left does, however many
+const STRAGGLER_TIME = 8 * 60;  // s into a wave when everything left does, however many
 function huntStragglers() {
   let n = 0;
   for (const e of game.enemies) {
