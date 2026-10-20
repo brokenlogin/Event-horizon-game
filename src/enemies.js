@@ -3,38 +3,39 @@ import { integrate, periapsisEstimate, accelAt, occludedByHole, circularSpeed, A
 import { shareGeometry, buildRaider, buildWarden, buildSeeker, buildSeeker2, buildDreadnought, buildLancer, buildSower, buildMine, buildAegis } from './ships.js';
 import { Trail } from './fx.js';
 
+// engageRange: how far off each type notices a pilot and starts fighting (30% up on the originals)
 export const ENEMY_DEFS = {
   raider: {
-    hp: 3, accel: 34, turn: 2.0, engageRange: 900, preferred: 150, approach: 45,
+    hp: 3, accel: 34, turn: 2.0, engageRange: 1170, preferred: 150, approach: 45,
     fireRange: 420, boltSpeed: 190, burst: 3, burstGap: 0.13, cooldown: [1.8, 3.0], dmg: 6, aimError: 6,
     score: 100, trailColor: 0xff3a3a, build: buildRaider,
   },
   // keeps its cannon, and launches a seeker drone every ~15 s at a pilot it can see
   warden: {
-    hp: 9, accel: 24, turn: 1.0, engageRange: 1000, preferred: 230, approach: 30,
+    hp: 9, accel: 24, turn: 1.0, engageRange: 1300, preferred: 230, approach: 30,
     fireRange: 520, boltSpeed: 150, burst: 1, burstGap: 0, cooldown: [1.6, 2.4], dmg: 9, spread: 5, aimError: 9,
     seekerEvery: 15, seekerRange: 1000,   // s (±7%); custom ADVANCED can change it
     score: 300, trailColor: 0xd050ff, build: buildWarden,
   },
   seeker: {
-    seeker: true, hp: 2, accel: 38, turn: 4.0, engageRange: 1200, preferred: 0, approach: 70,
+    seeker: true, hp: 2, accel: 38, turn: 4.0, engageRange: 1560, preferred: 0, approach: 70,
     fireRange: 0, ramDamage: 34, score: 150, trailColor: 0xffb030, build: buildSeeker,
   },
   // wave 14+ replaces seekers: 30% faster, 50% more damage
   seeker2: {
-    seeker: true, hp: 2, accel: 38 * 1.3, turn: 4.6, engageRange: 1200, preferred: 0, approach: 70 * 1.3,
+    seeker: true, hp: 2, accel: 38 * 1.3, turn: 4.6, engageRange: 1560, preferred: 0, approach: 70 * 1.3,
     fireRange: 0, ramDamage: 34 * 1.5, score: 225, trailColor: 0xffe680, build: buildSeeker2,
   },
   // wave 6+: a sniper that charges a beam. It aims where you'll be if you keep
   // coasting, then locks for a second before firing, so any thrust then dodges it.
   lancer: {
-    hp: 5, accel: 26, turn: 1.6, engageRange: 1400, preferred: 650, approach: 35,
+    hp: 5, accel: 26, turn: 1.6, engageRange: 1820, preferred: 650, approach: 35,
     weapon: 'beam', fireRange: 1100, charge: 2.5, lockAt: 1.35, beamDmg: 36, beamRange: 1500, cooldown: [4.5, 6.5],
     score: 250, trailColor: 0x3dff8a, build: buildLancer,
   },
   // wave 8+: an armoured mine-layer; its mines drift along its orbit
   sower: {
-    hp: 8, accel: 18, turn: 0.9, engageRange: 1100, preferred: 420, approach: 25,
+    hp: 8, accel: 18, turn: 0.9, engageRange: 1430, preferred: 420, approach: 25,
     weapon: 'mines', mineEvery: [1.6, 2.4], mineRange: 1000, maxMines: 16,
     score: 300, trailColor: 0xff8a2a, build: buildSower,
   },
@@ -44,7 +45,7 @@ export const ENEMY_DEFS = {
   },
   // wave 11+: unarmed; ships near it take far less damage until it's destroyed
   aegis: {
-    hp: 8, accel: 28, turn: 1.4, engageRange: 1400, preferred: 700, approach: 40,
+    hp: 8, accel: 28, turn: 1.4, engageRange: 1820, preferred: 700, approach: 40,
     weapon: 'none', support: true, shieldRange: 260, shieldMult: 0.1,
     score: 300, trailColor: 0x7a6bff, build: buildAegis,
   },
