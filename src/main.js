@@ -392,7 +392,7 @@ const game = {
   mp: false,
   bumpCd: 0, clearHold: 0, chargeBeep: 0,
   warp: 1,   // time warp between waves (solo): 1–10×
-  enemyFire, turretFire, bossLaunch, bossVolley, bossRaider, wardenLaunch, lancersAlive, nearestPilot, lancerFire, layMine, supportTarget,
+  enemyFire, turretFire, bossLaunch, bossVolley, bossRaider, bossHurt, wardenLaunch, lancersAlive, nearestPilot, lancerFire, layMine, supportTarget,
   seenTypes: new Set(),
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
@@ -878,8 +878,18 @@ function bossVolley(e) {
   return any;
 }
 
+/** The dreadnought dropped below half hull (host / solo): it launches seekers twice as fast. */
+function bossHurt(e) {
+  bossHurtNotice();
+  if (game.mp) net.sendEvent({ k: 'bossHurt' });
+}
+function bossHurtNotice() {
+  hud.notice('⚠ DREADNOUGHT CRIPPLED · SEEKER LAUNCHES DOUBLED', 'red');
+  audio.alarm();
+}
+
 function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2) {
-  const cap = 2 * volley;   // two volleys' worth in flight at most
+  const cap = (e.hurt ? 3 : 2) * volley;   // two volleys' worth in flight at most (three once it's crippled)
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
@@ -4062,6 +4072,7 @@ net.on('rail', (m) => {               // another pilot's railgun (visual; they a
   audio.beam(THREE.MathUtils.clamp(1.2 - new THREE.Vector3().fromArray(m.p).distanceTo(player.pos) / 1200, 0.1, 0.8));
 });
 net.on('sl', (m) => { if (isGuest()) seekerLaunchAlert(new THREE.Vector3().fromArray(m.p), !!m.w); });
+net.on('bossHurt', () => { if (isGuest()) bossHurtNotice(); });
 net.on('rl', (m) => { if (isGuest()) raiderLaunchAlert(new THREE.Vector3().fromArray(m.p)); });
 net.on('beam', (m) => {               // a lancer fired: draw it (the host judges hits)
   if (!isGuest()) return;
