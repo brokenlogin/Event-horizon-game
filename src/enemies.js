@@ -708,7 +708,7 @@ export class Enemy {
     this.flash = Math.max(0, this.flash - dt * 5);
     for (const m of this.built.mats) m.emissive.copy(m.userData.baseEmissive).lerp(_white, this.flash);
     for (const f of this.built.flames) {
-      const l = 0.6 + this.throttle * 3.0 + Math.random() * 0.3;
+      const l = (0.6 + this.throttle * 3.0 + Math.random() * 0.3) * (this.built.flameScale || 1);
       f.flame.scale.set(f.flame.userData.radius, f.flame.userData.radius, l);
       f.mat.uniforms.uTime.value = time;
       f.mat.uniforms.uIntensity.value = 0.5 + this.throttle;

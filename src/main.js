@@ -931,6 +931,34 @@ function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2)
 }
 
 /** The dreadnought's launch bay puts out a raider (host / solo); at most def.maxRaiders of its own at once. */
+/** Hot exhaust streaming back from the dreadnought's engines (drawn on every pilot's screen). */
+const _ex = new THREE.Vector3(), _exBack = new THREE.Vector3();
+function updateBossExhaust(dt) {
+  for (const e of game.enemies) {
+    if (!e.alive || !e.built.engines) continue;
+    e.exhaust = (e.exhaust || 0) + dt * (30 + 60 * e.throttle);   // puffs per engine per second
+    const n = Math.floor(e.exhaust);
+    if (!n) continue;
+    e.exhaust -= n;
+    const k = e.mesh.scale.x;
+    _exBack.set(0, 0, 1).applyQuaternion(e.quat);
+    for (const p of e.built.engines) {
+      _ex.copy(p).multiplyScalar(k).applyQuaternion(e.quat).add(e.mesh.position);
+      for (let i = 0; i < n; i++) {
+        randDir(_v3);
+        const sp = rand(70, 120) * (0.6 + e.throttle);
+        const hot = Math.random();
+        const j = Math.random() / 60;   // spread this frame's puffs along their first frame of travel
+        particles.emit(
+          _ex.x + _v3.x + _exBack.x * sp * j, _ex.y + _v3.y + _exBack.y * sp * j, _ex.z + _v3.z + _exBack.z * sp * j,
+          e.vel.x + _exBack.x * sp + _v3.x * 4, e.vel.y + _exBack.y * sp + _v3.y * 4, e.vel.z + _exBack.z * sp + _v3.z * 4,
+          1.4 + hot, 0.4 + hot * 0.45, 0.15, 1.6 * k, 5 * k, rand(0.45, 0.8), false, 0.15,
+        );
+      }
+    }
+  }
+}
+
 function bossRaider(e) {
   let mine = 0;
   for (const x of game.enemies) if (x.alive && x.bayOf === e) mine++;
@@ -3140,6 +3168,7 @@ function tick(rawDt, render) {
     for (const e of game.enemies) e.updateVisual(dt, camera.position, visualTime, vVel);
     missiles.update(dt, camera.position, visualTime);
     updateBossBlasts(dt);
+    updateBossExhaust(dt);
     updateBeams(dt);
     updateAegis(visualTime);
     particles.update(dt);

@@ -720,11 +720,21 @@ export function buildDreadnought(turretCount = 6) {
   aft.position.z = 32;
   model.add(aft);
   const flames = [];
+  const engines = [];
+  const throatMat = new THREE.MeshBasicMaterial({ color: hdr(0xffb070, 4), side: THREE.DoubleSide });
   for (const [x, y] of [[0, 5.5], [-5, -3], [5, -3]]) {
     const nozzle = zCyl(2.6, 3.4, 3, 12, m.hull);
     nozzle.position.set(x, y, 37);
     model.add(nozzle);
+    // white-hot throat and a glowing lip, so the engines read from behind even at idle
+    const throat = new THREE.Mesh(new THREE.CircleGeometry(2.5, 20), throatMat);
+    throat.position.set(x, y, 38.3);
+    model.add(throat);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(3.35, 0.32, 6, 24), strip);
+    lip.position.set(x, y, 38.5);
+    model.add(lip);
     addFlame(model, x, y, 38.5, 2.6, 0xff3a2a, flames);
+    engines.push(new THREE.Vector3(x, y, 39));
   }
   // dorsal and ventral fins
   for (const sy of [1, -1]) {
@@ -826,7 +836,10 @@ export function buildDreadnought(turretCount = 6) {
   telegraph.frustumCulled = false;
   group.add(telegraph);
 
-  return { group, model, flames, mats: [m.hull, m.dark, plate], radius: 33, ringPivot, emitter, emitterGlow, telegraph, core, coreGlow, turrets, launchers, muzzles: [] };
+  return {
+    group, model, flames, mats: [m.hull, m.dark, plate], radius: 33, ringPivot, emitter, emitterGlow, telegraph, core, coreGlow, turrets, launchers, muzzles: [],
+    engines, flameScale: 7,   // long plumes to match its size
+  };
 }
 
 // ---------------------------------------------------------------------------
