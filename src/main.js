@@ -426,6 +426,7 @@ const ADV_FIELDS = [
   { group: 'ENEMY BEHAVIOUR' },
   { key: 'speed', name: 'ENEMY SPEED', min: 25, max: 300, step: 5, def: 100, typeMax: 1000, unit: '%', hint: 'how fast they close in' },
   { key: 'thrust', name: 'ENEMY THRUST', min: 25, max: 300, step: 5, def: 100, typeMax: 1000, unit: '%', hint: 'how hard they accelerate' },
+  { key: 'notice', name: 'NOTICE RANGE', min: 25, max: 400, step: 25, def: 100, typeMax: 2000, unit: '%', hint: 'how far off they spot you (raiders 900 m)' },
   { key: 'aggroEvery', name: 'HUNTING PARTY EVERY', min: 5, max: 120, step: 5, def: 25, typeMax: 600, unit: 's' },
   { key: 'aggroShare', name: 'HUNTING PARTY SIZE', min: 0, max: 100, step: 5, def: 33, unit: '%', hint: 'share of the wave; 0 = none' },
   { group: 'ENEMY WEAPONS' },
@@ -477,7 +478,7 @@ function buildTune(c) {
   return {
     count: { raider: pct('n_raider'), warden: pct('n_warden'), lancer: pct('n_lancer'), sower: pct('n_sower'), aegis: pct('n_aegis') },
     bossEvery: t.bossEvery, bossHp: pct('bossHp'),
-    speed: pct('speed'), thrust: pct('thrust'),
+    speed: pct('speed'), thrust: pct('thrust'), notice: pct('notice'),
     aggroEvery: t.aggroEvery,
     aggroShare: t.aggroShare === 33 ? 1 / 3 : t.aggroShare / 100,   // the standard game sends exactly a third
     fire: { raider: pct('f_raider'), warden: pct('f_warden'), lancer: pct('f_lancer'), turret: pct('f_turret') },

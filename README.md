@@ -83,11 +83,11 @@ Pick it on the main menu, above LAUNCH:
 
 - **Enemy spawns:** raiders, wardens, lancers, sowers and aegis, each 0–500% of the usual number per wave (100%)
 - **Dreadnought:** arrives every 0–15 waves, 0 = never (5) · hull strength 25–500% (100%) · turret fire rate 25–400% (100%) · turret burst 1–10 shots (3)
-- **Enemy behaviour:** speed, how fast they close in, 25–300% (100%) · thrust 25–300% (100%) · hunting party every 5–120 s (25 s) · hunting party size 0–100% of the wave, 0 = none (33%)
+- **Enemy behaviour:** speed, how fast they close in, 25–300% (100%) · thrust 25–300% (100%) · notice range, how far off they spot you and start fighting (raiders 900 m, wardens 1 km, sowers 1.1 km, lancers and aegis 1.4 km), 25–400% (100%) · hunting party every 5–120 s (25 s) · hunting party size 0–100% of the wave, 0 = none (33%)
 - **Enemy weapons:** raider fire rate 25–400% and burst 1–10 (3) · warden fire rate and burst (1) · warden seeker launch every 3–60 s (15 s) · lancer fire rate · sower mine rate (all rates 100%)
 - **World:** station orbit speed 100–167 m/s (145)
 
-Type in a number box to go past the end of its slider: up to 2000% for spawns and rates, 1000% for speed and thrust, 50-shot bursts, 5000% Dreadnought hull, a boss every 100 waves, 600 s intervals and a 300 m/s station. RESET ADVANCED puts just these back. The difficulty line shows "advanced tuning" when any of them differ from standard.
+Type in a number box to go past the end of its slider: up to 2000% for spawns, rates and notice range, 1000% for speed and thrust, 50-shot bursts, 5000% Dreadnought hull, a boss every 100 waves, 600 s intervals and a 300 m/s station. RESET ADVANCED puts just these back. The difficulty line shows "advanced tuning" when any of them differ from standard.
 
 Enemy counts stack with crew scaling in multiplayer. Enemy damage covers their cannon fire, seeker rams and collisions with enemy ships. The black hole's tides and the accretion disk hurt the same on every setting. Each difficulty keeps its own best score. In multiplayer the host picks the difficulty in the waiting room and everyone flies with it.
 

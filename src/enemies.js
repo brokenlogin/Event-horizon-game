@@ -124,7 +124,7 @@ export function resetEnemyIds() { nextNetId = 1; }
 
 // Tuning from the custom difficulty's ADVANCED settings (main.js buildTune puts it on
 // game.tune). These are the standard values, used if a game has none.
-const STANDARD_TUNE = { speed: 1, thrust: 1, fire: {}, burst: {}, seekerEvery: ENEMY_DEFS.warden.seekerEvery, mineRate: 1 };
+const STANDARD_TUNE = { speed: 1, thrust: 1, notice: 1, fire: {}, burst: {}, seekerEvery: ENEMY_DEFS.warden.seekerEvery, mineRate: 1 };
 const tuneOf = (game) => game.tune || STANDARD_TUNE;
 /** Seconds until a warden's next seeker launch (±7% so a group doesn't fire in step). */
 export function seekerInterval(game) { return tuneOf(game).seekerEvery * (0.93 + Math.random() * 0.14); }
@@ -533,7 +533,7 @@ export class Enemy {
     // relative-motion steering behaves as it would in free space
     const gDiff = _gP.copy(accelAt(player.pos, _gP)).sub(accelAt(this.pos, _gE));
     // (seekers are homing drones: they always chase, from any range)
-    const engaged = player.alive && (aggro || def.seeker || dist < def.engageRange);
+    const engaged = player.alive && (aggro || def.seeker || dist < def.engageRange * tn.notice);
 
     const radialVel = this.vel.dot(this.pos) / Math.max(r, 1e-3);
     // look ahead along the current heading: would we pass inside the hole's shadow?
