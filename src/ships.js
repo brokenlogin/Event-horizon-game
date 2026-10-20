@@ -817,7 +817,7 @@ export function buildDreadnought(turretCount = 6) {
   emitterGlow.scale.setScalar(26);
   model.add(emitterGlow);
   const telegraph = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1, true).rotateX(Math.PI / 2).translate(0, 0, -0.5),
+    new THREE.CylinderGeometry(1.5, 1.5, 1, 8, 1, true).rotateX(Math.PI / 2).translate(0, 0, -0.5),   // thick: the beam is wide
     new THREE.MeshBasicMaterial({ color: hdr(0xff3a3a, 2.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
   );
   telegraph.position.z = -48;

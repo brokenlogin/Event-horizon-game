@@ -392,7 +392,7 @@ const game = {
   mp: false,
   bumpCd: 0, clearHold: 0, chargeBeep: 0,
   warp: 1,   // time warp between waves (solo): 1–10×
-  enemyFire, turretFire, bossLaunch, bossVolley, wardenLaunch, lancersAlive, nearestPilot, lancerFire, layMine, supportTarget,
+  enemyFire, turretFire, bossLaunch, bossVolley, bossRaider, wardenLaunch, lancersAlive, nearestPilot, lancerFire, layMine, supportTarget,
   seenTypes: new Set(),
 };
 // Difficulty: scales the damage enemies deal and how many missiles you carry.
@@ -858,6 +858,7 @@ function turretFire(e, t) {
  */
 function bossVolley(e) {
   const n = e.built.launchers.length;
+  e.volleyPhase = Math.random() * Math.PI * 2;   // which sides this volley's flankers take
   const extra = Math.min(3, (e.appearance || 1) - 1);   // later fortresses add a seeker a volley (up to 3)
   if (!game.mp) {
     const size = n + extra;
@@ -888,7 +889,18 @@ function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2)
   const fwd = forwardOf(e.quat, _v3);
   s.pos.copy(e.built.launchers[li]).applyQuaternion(e.quat).add(e.pos);
   if (stagger) s.pos.addScaledVector(_v1.set(0, 1, 0).applyQuaternion(e.quat), (stagger % 2 ? 4 : -4) * Math.ceil(stagger / 2)).addScaledVector(fwd, -3 * stagger);   // extras clear of the first pair
-  s.vel.copy(e.vel).addScaledVector(fwd, 45 - 4 * stagger);
+  // flankers: each is flung out to its own side of the line to its pilot (spread evenly
+  // round it), swings wide, then curves in from the side instead of head-on
+  const prey = (target || player).pos;
+  const line = _v2.subVectors(prey, e.pos).normalize();
+  const across = new THREE.Vector3().crossVectors(line, e.orbitN || _v1.set(0, 1, 0));
+  if (across.lengthSq() < 1e-6) across.set(1, 0, 0);
+  across.normalize();
+  const k = li + stagger * e.built.launchers.length;
+  across.applyAxisAngle(line, (e.volleyPhase || 0) + (k / Math.max(volley, 1)) * Math.PI * 2);
+  s.flankDir = across;
+  s.flankT = 14;   // (a cap: it stops flanking once it's within 250 m)
+  s.vel.copy(e.vel).addScaledVector(fwd, 10).addScaledVector(across, 60);
   s.quat.copy(e.quat);
   s.age = 0.8;             // skip most of the warm-up: it comes out hot
   s.spawnFx = 0.6;
@@ -902,6 +914,34 @@ function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2)
     if (game.mp) net.sendEvent({ k: 'sl', p: r2(s.pos) });
   }
   return true;
+}
+
+/** The dreadnought's launch bay puts out a raider (host / solo); at most def.maxRaiders of its own at once. */
+function bossRaider(e) {
+  let mine = 0;
+  for (const x of game.enemies) if (x.alive && x.bayOf === e) mine++;
+  if (mine >= e.def.maxRaiders) return;
+  const r = new Enemy('raider', scene, game.wave - 1);
+  scaleEnemyHp(r);
+  r.bayOf = e;
+  const fwd = forwardOf(e.quat, _v3);
+  const side = _v2.set(Math.random() < 0.5 ? 1 : -1, 0, 0).applyQuaternion(e.quat);
+  r.pos.copy(e.pos).addScaledVector(side, 30).addScaledVector(fwd, -10);   // out of a hangar on its flank
+  r.vel.copy(e.vel).addScaledVector(side, 25).addScaledVector(fwd, 10);
+  r.quat.setFromRotationMatrix(new THREE.Matrix4().lookAt(r.pos, _v1.copy(r.pos).add(side), new THREE.Vector3(0, 1, 0)));
+  r.spawnFx = 0.6;
+  r.mesh.position.copy(r.pos);
+  r.mesh.scale.setScalar(0.4);
+  r.trail.reset(r.pos);
+  game.enemies.push(r);
+  launchFx(r.pos, r.vel);
+  raiderLaunchAlert(r.pos);
+  if (game.mp) net.sendEvent({ k: 'rl', p: r2(r.pos) });
+}
+function raiderLaunchAlert(pos) {
+  if (!player.alive || pos.distanceTo(player.pos) > 2600) return;
+  hud.notice('⚠ DREADNOUGHT LAUNCHED A RAIDER', 'orange');
+  audio.beep(900, 0.08, 0.06, 'square');
 }
 
 function lancersAlive() { let n = 0; for (const e of game.enemies) if (e.alive && e.type === 'lancer') n++; return n; }
@@ -1099,7 +1139,7 @@ function updateBeams(dt) {
     if (k <= 0) { g.visible = false; continue; }
     g.userData.outer.material.opacity = k * 0.8;
     g.userData.inner.material.opacity = k;
-    const w = 0.4 + 1.6 * k;
+    const w = (0.4 + 1.6 * k) * (g.userData.width || 1);
     g.userData.outer.scale.set(w * 1.6, w * 1.6, g.userData.len);
     g.userData.inner.scale.set(w * 0.45, w * 0.45, g.userData.len);
   }
@@ -1118,11 +1158,12 @@ function beamLength(o, d, max) {
 
 const LANCER_BEAM = new THREE.Color(0x3dff8a).multiplyScalar(3);
 const RAIL_BEAM = new THREE.Color(0x5ef2ff).multiplyScalar(3);
-function drawBeam(origin, dir, len, color = LANCER_BEAM) {
+function drawBeam(origin, dir, len, color = LANCER_BEAM, width = 1) {
   const g = beamPool.find((b) => !b.visible) || beamPool[0];
   g.visible = true;
   g.userData.t = 0.4;
   g.userData.len = len;
+  g.userData.width = width;
   g.userData.outer.material.color.copy(color);
   g.position.copy(origin);
   g.quaternion.setFromUnitVectors(_v1.set(0, 0, -1), dir);
@@ -1133,6 +1174,9 @@ function drawBeam(origin, dir, len, color = LANCER_BEAM) {
 }
 
 const BOSS_BEAM = new THREE.Color(0xff3a3a).multiplyScalar(3.2);
+// the dreadnought's railgun is a broad lance: it hits anything within 8 m of its line
+const BOSS_BEAM_MARGIN = 8;
+const BOSS_BEAM_WIDTH = 2.5;   // drawn width (×) so the flash covers about that
 // Beam hitbox: the fuselage plus spheres down each wing (the MK2's nacelles sit inside the outer ones),
 // in the ship's frame as [x, z, radius].
 const BEAM_HULL = [[0, 0, 1.6], [0, -1.6, 0.9], [1.25, 0.6, 0.9], [-1.25, 0.6, 0.9], [2.35, 1.1, 0.75], [-2.35, 1.1, 0.75]];
@@ -1153,14 +1197,14 @@ function beamMiss(origin, dir, len, pos, quat) {
  * can't make a shot at someone sitting still miss. Guests only draw it.
  */
 function fireBeam(origin, dir, len, dmg, boss = false, judge = true) {
-  drawBeam(origin, dir, len, boss ? BOSS_BEAM : LANCER_BEAM);
+  drawBeam(origin, dir, len, boss ? BOSS_BEAM : LANCER_BEAM, boss ? BOSS_BEAM_WIDTH : 1);
   const light = flashLights[flashIdx];
   flashIdx = (flashIdx + 1) % flashLights.length;
   light.position.copy(origin);
   light.userData.t = 1;
   light.userData.peak = 900;
   light.userData.vel = null;
-  const margin = boss ? 3 : 1.2;   // about the drawn beam's width
+  const margin = boss ? BOSS_BEAM_MARGIN : 1.2;   // about the drawn beam's width
   const miss = beamMiss(origin, dir, len, player.pos, player.quat);
   audio.beam(THREE.MathUtils.clamp(1.4 - Math.min(Math.max(miss, 0), origin.distanceTo(player.pos)) / 900, 0.1, 1));
   if (judge) {
@@ -3995,6 +4039,7 @@ net.on('rail', (m) => {               // another pilot's railgun (visual; they a
   audio.beam(THREE.MathUtils.clamp(1.2 - new THREE.Vector3().fromArray(m.p).distanceTo(player.pos) / 1200, 0.1, 0.8));
 });
 net.on('sl', (m) => { if (isGuest()) seekerLaunchAlert(new THREE.Vector3().fromArray(m.p), !!m.w); });
+net.on('rl', (m) => { if (isGuest()) raiderLaunchAlert(new THREE.Vector3().fromArray(m.p)); });
 net.on('beam', (m) => {               // a lancer fired: draw it (the host judges hits)
   if (!isGuest()) return;
   fireBeam(new THREE.Vector3().fromArray(m.p), new THREE.Vector3().fromArray(m.d).normalize(), m.l, m.dmg, !!m.b, false);

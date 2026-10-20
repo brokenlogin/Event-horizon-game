@@ -57,10 +57,12 @@ export const ENEMY_DEFS = {
     turret: {
       hp: 10, range: 1300, boltSpeed: 240, burst: 3, burstGap: 0.11, cooldown: [1.4, 2.0], dmg: 5, aimError: 6, turn: 1.5, score: 250,
     },
-    // seeker launcher: a pair (one per tube) per volley
+    // seeker launcher: a pair (one per tube) per volley, flung out to the sides to flank
     launchCooldown: [6, 8], launchRange: 2200,
-    // spinal railgun, like a lancer's but heavier: tracks, locks (aim line flashes), fires
-    beam: true, charge: 3.0, lockAt: 1.9, beamDmg: 40, beamRange: 2600, fireRange: 2200, cooldown: [8, 11], muzzle: 48, beamWidth: 2.5,
+    // launch bay: a raider every 15 s while a pilot is within launchRange
+    raiderEvery: 15, maxRaiders: 6,
+    // spinal railgun, like a lancer's but heavier and much wider: tracks, locks (aim line flashes), fires
+    beam: true, charge: 3.0, lockAt: 1.9, beamDmg: 60, beamRange: 2600, fireRange: 2200, cooldown: [8, 11], muzzle: 48,
   },
 };
 
@@ -69,6 +71,7 @@ const _rel = new THREE.Vector3();
 const _des = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 const _tmp2 = new THREE.Vector3();
+const _flank = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _tq = new THREE.Quaternion();
@@ -252,6 +255,7 @@ export class Enemy {
     this.orbitN = new THREE.Vector3(0, 1, 0);
     this.orbitV = circularSpeed(this.orbitR);
     this.launchTimer = 5;
+    this.raiderTimer = 8;        // first raider out of the bay a little after it arrives
     this.fireTimer = 6;          // first railgun shot a little after it arrives
     this.launcherIdx = 0;
     this.turrets = this.built.turrets.map((b, i) => ({
@@ -395,6 +399,11 @@ export class Enemy {
         const [a, b] = def.launchCooldown;
         this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04);
       } else this.launchTimer = ok ? 2 : 1;
+    }
+    // launch bay: a raider while a pilot is close
+    if (hunting && dist < def.launchRange && !blocked && this.age > 4 && (this.raiderTimer -= dt) <= 0) {
+      this.raiderTimer = def.raiderEvery;
+      game.bossRaider(this);
     }
   }
 
@@ -550,11 +559,20 @@ export class Enemy {
       }
     } else if (engaged) {
       if (def.seeker) {
-        // pure pursuit with relative-velocity steering; it overshoots and can be dodged
-        _des.copy(dirP).multiplyScalar((def.approach + this.difficulty * 3) * tn.speed);
+        // pure pursuit with relative-velocity steering; it overshoots and can be dodged.
+        // The dreadnought's flank first: they aim beside the pilot, then curve in from the side.
+        let chase = dirP;
+        if (this.flankT > 0 && dist > 250) {
+          this.flankT -= dt;
+          _flank.copy(this.flankDir).addScaledVector(dirP, -this.flankDir.dot(dirP));   // across the line to the pilot
+          if (_flank.lengthSq() > 1e-4) {
+            chase = _flank.normalize().multiplyScalar(Math.min(dist * 0.9, 500)).add(player.pos).sub(this.pos).normalize();
+          }
+        } else this.flankT = 0;   // close in: from here it's a straight chase
+        _des.copy(chase).multiplyScalar((def.approach + this.difficulty * 3) * tn.speed);
         _des.sub(_rel).multiplyScalar(1.2).add(gDiff);
         this.thrust.copy(_des).clampLength(0, accel);
-        faceTarget = _tmp2.copy(player.pos);
+        faceTarget = chase === dirP ? _tmp2.copy(player.pos) : _tmp2.copy(this.pos).addScaledVector(chase, 100);
       } else {
         const preferred = def.preferred * (aggro ? 0.6 : 1);
         const closing = THREE.MathUtils.clamp((dist - preferred) * 0.3, -30 * tn.speed, def.approach * (aggro ? 1.8 : 1) * tn.speed);
