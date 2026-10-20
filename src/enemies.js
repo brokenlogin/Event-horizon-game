@@ -59,8 +59,7 @@ export const ENEMY_DEFS = {
     },
     // seeker launcher: a pair (one per tube) per volley, flung out to the sides to flank
     launchCooldown: [6, 8], launchRange: 2200,
-    hurtLaunchRate: 2,   // below half hull it launches volleys twice as often…
-    easyHurtLaunchRate: 1.3,   // …or 30% more often with the custom EASIER DREADNOUGHT
+    hurtLaunchRate: 1.4,   // below half hull it launches volleys 40% more often (not with the custom EASIER DREADNOUGHT)
     // launch bay: a raider every 12 s while a pilot is within launchRange
     raiderEvery: 12, maxRaiders: 6,
     // spinal railgun, like a lancer's but heavier and much wider: tracks, locks (aim line flashes), fires
@@ -391,8 +390,8 @@ export class Enemy {
     this.updateTurretPositions();
     this.aimTurrets(dt, game, true);
 
-    // below half hull it gets desperate: seeker volleys come twice as fast
-    if (!this.hurt && this.hp < this.maxHp / 2) {
+    // below half hull it gets desperate: seeker volleys come 40% faster (custom EASIER DREADNOUGHT: never)
+    if (!this.hurt && !tuneOf(game).easyBoss && this.hp < this.maxHp / 2) {
       this.hurt = true;
       this.launchTimer = Math.min(this.launchTimer, 1.5);
       game.bossHurt(this);
@@ -405,7 +404,7 @@ export class Enemy {
       if (ok) launched = game.bossVolley(this);
       if (launched) {
         const [a, b] = def.launchCooldown;
-        this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04) / (this.hurt ? (tuneOf(game).easyBoss ? def.easyHurtLaunchRate : def.hurtLaunchRate) : 1);
+        this.launchTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04) / (this.hurt ? def.hurtLaunchRate : 1);
       } else this.launchTimer = ok ? 2 : 1;
     }
     // launch bay: a raider while a pilot is close

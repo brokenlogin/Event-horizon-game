@@ -880,18 +880,18 @@ function bossVolley(e) {
   return any;
 }
 
-/** The dreadnought dropped below half hull (host / solo): it launches seekers twice as fast. */
+/** The dreadnought dropped below half hull (host / solo): it launches seekers 40% faster. */
 function bossHurt(e) {
   bossHurtNotice();
   if (game.mp) net.sendEvent({ k: 'bossHurt' });
 }
 function bossHurtNotice() {
-  hud.notice(`⚠ DREADNOUGHT CRIPPLED · SEEKER LAUNCHES ${game.tune.easyBoss ? 'QUICKEN' : 'DOUBLED'}`, 'red');
+  hud.notice('⚠ DREADNOUGHT CRIPPLED · SEEKER LAUNCHES QUICKEN', 'red');
   audio.alarm();
 }
 
 function bossLaunch(e, li, target = null, alert = true, stagger = 0, volley = 2) {
-  const cap = (e.hurt && !game.tune.easyBoss ? 3 : 2) * volley;   // two volleys' worth in flight at most (three once it's crippled)
+  const cap = (e.hurt ? 3 : 2) * volley;   // two volleys' worth in flight at most (three once it's crippled)
   let out = 0;
   for (const x of game.enemies) if (x.alive && x.launched) out++;
   if (out >= cap) return false;
@@ -2242,7 +2242,7 @@ function renderCustomEditor() {
     + `<button data-toggle="${key}" class="btn small${customDiff[key] ? ' on' : ''}">${customDiff[key] ? 'ON' : 'OFF'}</button></div>`;
   document.getElementById('cd-rows').innerHTML = CUSTOM_FIELDS.map(customRow).join('')
     + toggle('fpv', 'FIRST PERSON VIEW', 'Fly from the cockpit instead of behind the ship')
-    + toggle('easyBoss', 'EASIER DREADNOUGHT', 'No raiders from its launch bay, and its seeker volleys speed up less when it\'s crippled')
+    + toggle('easyBoss', 'EASIER DREADNOUGHT', 'No raiders from its launch bay, and its seeker volleys don\'t speed up when it\'s crippled')
     + `<button id="cd-adv-toggle" class="cd-adv-toggle${advOpen ? ' open' : ''}">ADVANCED ${advOpen ? '▾' : '▸'}`
     + `${advChanged(customDiff) ? '<span>· CHANGED</span>' : ''}</button>`
     + (advOpen ? `<div class="cd-adv">${ADV_FIELDS.map((f) => (f.group ? `<div class="cd-group">${f.group}</div>` : customRow(f))).join('')}`
