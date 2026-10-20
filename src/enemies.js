@@ -50,7 +50,7 @@ export const ENEMY_DEFS = {
   },
   // boss: an orbital fortress that holds one low orbit, defended by six turrets (up to twelve on later appearances) and a seeker launcher
   dread: {
-    boss: true, hp: 200, accel: 32, turn: 0.4, score: 3000, trailColor: 0xff2a3c, build: buildDreadnought,
+    boss: true, hp: 280, accel: 32, turn: 0.4, score: 3000, trailColor: 0xff2a3c, build: buildDreadnought,
     // hunts the nearest pilot: closes at up to `approach` m/s and settles about `standoff` m away.
     // Strong engines (it holds altitude against the hole) but a capped closing speed, so you can outrun it.
     approach: 55, standoff: 550, minRadius: 1000,
@@ -59,8 +59,8 @@ export const ENEMY_DEFS = {
     },
     // seeker launcher: a pair (one per tube) per volley, flung out to the sides to flank
     launchCooldown: [6, 8], launchRange: 2200,
-    // launch bay: a raider every 15 s while a pilot is within launchRange
-    raiderEvery: 15, maxRaiders: 6,
+    // launch bay: a raider every 12 s while a pilot is within launchRange
+    raiderEvery: 12, maxRaiders: 6,
     // spinal railgun, like a lancer's but heavier and much wider: tracks, locks (aim line flashes), fires
     beam: true, charge: 3.0, lockAt: 1.9, beamDmg: 60, beamRange: 2600, fireRange: 2200, cooldown: [8, 11], muzzle: 48,
   },
