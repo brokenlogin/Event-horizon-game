@@ -523,7 +523,8 @@ export class Enemy {
     // feed-forward the difference in gravity between us and the player, so
     // relative-motion steering behaves as it would in free space
     const gDiff = _gP.copy(accelAt(player.pos, _gP)).sub(accelAt(this.pos, _gE));
-    const engaged = player.alive && (aggro || dist < def.engageRange);
+    // (seekers are homing drones: they always chase, from any range)
+    const engaged = player.alive && (aggro || def.seeker || dist < def.engageRange);
 
     const radialVel = this.vel.dot(this.pos) / Math.max(r, 1e-3);
     // look ahead along the current heading: would we pass inside the hole's shadow?

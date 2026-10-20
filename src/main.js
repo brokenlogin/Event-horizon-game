@@ -672,6 +672,8 @@ function startWave(n) {
   game.waveActive = true;
   game.aggroTimer = 10;   // the first surge a little after the wave arrives
   game.aggroParty = false;
+  game.waveAge = 0;
+  game.stragglers = false;
   const restocked = missiles.ammo < missiles.capacity;
   missiles.refill();
   const fresh = newContacts(game.spawnQueue);
@@ -3105,6 +3107,10 @@ function tick(rawDt, render) {
           game.aggroTimer = game.tune.aggroEvery;
           game.aggroParty = pickAggressors() > 0;
         }
+        // stragglers: once a wave is down to its last few (or has dragged on for 15 min),
+        // everything left hunts the nearest pilot for good, so a wave can't stall
+        game.waveAge += dt;
+        if (!game.spawnQueue.length && (hostileCount() <= STRAGGLERS || game.waveAge > STRAGGLER_TIME)) huntStragglers();
       }
       game.comboTimer -= dt;
       if (game.comboTimer <= 0) game.mult = 1;
@@ -3469,9 +3475,26 @@ function alivePilots() {
  * close in hard, so a few are always on you but never the whole wave. In multiplayer the third is shared evenly between the pilots
  * who are out flying, each taking the hostiles nearest to them. Host / solo.
  */
+const STRAGGLERS = 3;          // hostiles left when the rest all turn on you
+const STRAGGLER_TIME = 15 * 60; // s into a wave when everything left does, however many
+function huntStragglers() {
+  let n = 0;
+  for (const e of game.enemies) {
+    if (!e.alive || e.proxy || e.def.boss || e.def.inert || e.aggro === Infinity) continue;
+    e.aggro = Infinity;                      // never wears off
+    e.aggroTarget = nearestPilot(e.pos);     // (if they go down, it hunts whoever's nearest)
+    n++;
+  }
+  if (n && !game.stragglers) {
+    game.stragglers = true;
+    hud.notice(`⚠ LAST HOSTILES HUNTING YOU`, 'orange');
+    if (game.mp) net.sendEvent({ k: 'aggro', n, last: 1 });
+  }
+}
+
 /** Returns how many hostiles were sent. */
 function pickAggressors() {
-  const pool = game.enemies.filter((e) => e.alive && !e.proxy && !e.def.boss && !e.def.inert && !e.def.support && !e.def.seeker);
+  const pool = game.enemies.filter((e) => e.alive && !e.proxy && !e.def.boss && !e.def.inert && !e.def.support && !e.def.seeker && e.aggro !== Infinity);
   const pilots = alivePilots().filter((p) => !p.docked && !p.docking);
   const share = game.tune.aggroShare;
   if (!pool.length || !pilots.length || share <= 0) return 0;
@@ -3993,7 +4016,7 @@ net.on('ws', (m) => {
   game.waveActive = !!m.active;
   if (Math.abs(game.waveTimer - m.timer) > 0.5 * game.warp) game.waveTimer = m.timer;
 });
-net.on('aggro', (m) => { if (isGuest() && player.alive) hud.notice(`⚠ ${m.n} HOSTILE${m.n === 1 ? '' : 'S'} CLOSING IN`, 'orange'); });
+net.on('aggro', (m) => { if (isGuest() && player.alive) hud.notice(m.last ? '⚠ LAST HOSTILES HUNTING YOU' : `⚠ ${m.n} HOSTILE${m.n === 1 ? '' : 'S'} CLOSING IN`, 'orange'); });
 net.on('waveStart', (m) => {
   if (!isGuest()) return;
   game.wave = m.n;
