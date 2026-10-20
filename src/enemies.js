@@ -223,7 +223,7 @@ export class Enemy {
         // the last lancer standing fires 40% faster
         const lone = this.type === 'lancer' && game.lancersAlive() === 1;
         const rate = this.type === 'lancer' ? tuneOf(game).fire.lancer || 1 : 1;
-        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.05) / (lone ? 1.4 : 1) / rate;
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.05) / (lone ? 1.4 : 1) / rate / (this.frenzy ? 1.6 : 1);
       }
       return faceTarget;
     }
@@ -523,7 +523,9 @@ export class Enemy {
     const aggro = this.aggro > 0;
     if (aggro) this.aggro -= dt;
     const tn = tuneOf(game);
-    const accel = def.accel * (1 + this.difficulty * 0.05) * (aggro ? 1.25 : 1) * tn.thrust;
+    // frenzy (a wave in overtime, see huntStragglers in main.js): harder, faster, closer, and shooting more
+    const fz = this.frenzy;
+    const accel = def.accel * (1 + this.difficulty * 0.05) * (fz ? 1.7 : aggro ? 1.25 : 1) * tn.thrust;
 
     let faceTarget = null;
     const rp = periapsisEstimate(this.pos, this.vel);
@@ -577,13 +579,13 @@ export class Enemy {
             chase = _flank.normalize().multiplyScalar(Math.min(dist * 0.9, 500)).add(player.pos).sub(this.pos).normalize();
           }
         } else this.flankT = 0;   // close in: from here it's a straight chase
-        _des.copy(chase).multiplyScalar((def.approach + this.difficulty * 3) * tn.speed);
+        _des.copy(chase).multiplyScalar((def.approach + this.difficulty * 3) * tn.speed * (fz ? 1.5 : 1));
         _des.sub(_rel).multiplyScalar(1.2).add(gDiff);
         this.thrust.copy(_des).clampLength(0, accel);
         faceTarget = chase === dirP ? _tmp2.copy(player.pos) : _tmp2.copy(this.pos).addScaledVector(chase, 100);
       } else {
-        const preferred = def.preferred * (aggro ? 0.6 : 1);
-        const closing = THREE.MathUtils.clamp((dist - preferred) * 0.3, -30 * tn.speed, def.approach * (aggro ? 1.8 : 1) * tn.speed);
+        const preferred = def.preferred * (fz ? 0.35 : aggro ? 0.6 : 1);
+        const closing = THREE.MathUtils.clamp((dist - preferred) * 0.3, -30 * tn.speed, def.approach * (fz ? 2.8 : aggro ? 1.8 : 1) * tn.speed);
         _des.copy(dirP).multiplyScalar(closing);
         // jink sideways so they're harder to hit
         _up.set(0, 1, 0).applyQuaternion(this.quat);
@@ -620,7 +622,7 @@ export class Enemy {
       this.fireTimer -= dt;
       if (this.fireTimer <= 0 && player.alive && dist < def.mineRange && this.age > 2) {
         const [a, b] = def.mineEvery;
-        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04) / tn.mineRate;
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.04) / tn.mineRate / (fz ? 1.6 : 1);
         game.layMine(this);
       }
     }
@@ -642,7 +644,7 @@ export class Enemy {
         this.burstLeft = tn.burst[this.type] ?? def.burst;
         this.burstTimer = 0;
         const [a, b] = def.cooldown;
-        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06) / (tn.fire[this.type] || 1);
+        this.fireTimer = (a + Math.random() * (b - a)) / (1 + this.difficulty * 0.06) / (tn.fire[this.type] || 1) / (fz ? 1.6 : 1);
         this.rollAim();
       }
     }

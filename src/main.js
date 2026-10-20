@@ -676,6 +676,7 @@ function startWave(n) {
   game.aggroParty = false;
   game.waveAge = 0;
   game.stragglers = false;
+  game.frenzy = false;
   const restocked = missiles.ammo < missiles.capacity;
   missiles.refill();
   const fresh = newContacts(game.spawnQueue);
@@ -3151,10 +3152,11 @@ function tick(rawDt, render) {
           game.aggroTimer = game.tune.aggroEvery;
           game.aggroParty = pickAggressors() > 0;
         }
-        // stragglers: once a wave is down to its last few (or has dragged on for 8 min),
-        // everything left hunts the nearest pilot for good, so a wave can't stall
+        // stragglers: once a wave is down to its last few, everything left hunts the nearest
+        // pilot for good, so a wave can't stall; past 8 min they go into a frenzy
         game.waveAge += dt;
-        if (!game.spawnQueue.length && (hostileCount() <= STRAGGLERS || game.waveAge > STRAGGLER_TIME)) huntStragglers();
+        if (game.waveAge > STRAGGLER_TIME) huntStragglers(true);
+        else if (!game.spawnQueue.length && hostileCount() < STRAGGLERS) huntStragglers(false);
       }
       game.comboTimer -= dt;
       if (game.comboTimer <= 0) game.mult = 1;
@@ -3520,19 +3522,28 @@ function alivePilots() {
  * close in hard, so a few are always on you but never the whole wave. In multiplayer the third is shared evenly between the pilots
  * who are out flying, each taking the hostiles nearest to them. Host / solo.
  */
-const STRAGGLERS = 3;          // hostiles left when the rest all turn on you
-const STRAGGLER_TIME = 8 * 60;  // s into a wave when everything left does, however many
-function huntStragglers() {
+const STRAGGLERS = 8;           // fewer hostiles than this left: they all turn on you for good
+const STRAGGLER_TIME = 8 * 60;  // s into a wave when everything left goes into a frenzy, however many
+/** Everything left hunts the nearest pilot for good; `frenzy` (overtime) makes them far fiercer (see enemies.js). */
+function huntStragglers(frenzy) {
   let n = 0;
   for (const e of game.enemies) {
-    if (!e.alive || e.proxy || e.def.boss || e.def.inert || e.aggro === Infinity) continue;
+    if (!e.alive || e.proxy || e.def.boss || e.def.inert) continue;
+    if (e.aggro === Infinity && (e.frenzy || !frenzy)) continue;
     e.aggro = Infinity;                      // never wears off
     e.aggroTarget = nearestPilot(e.pos);     // (if they go down, it hunts whoever's nearest)
+    if (frenzy) e.frenzy = true;
     n++;
   }
-  if (n && !game.stragglers) {
+  if (!n) return;
+  if (frenzy && !game.frenzy) {
+    game.frenzy = true;
+    hud.notice('⚠ WAVE OVERTIME · EVERY HOSTILE IS IN A FRENZY', 'red');
+    audio.alarm();
+    if (game.mp) net.sendEvent({ k: 'aggro', n, last: 2 });
+  } else if (!frenzy && !game.stragglers) {
     game.stragglers = true;
-    hud.notice(`⚠ LAST HOSTILES HUNTING YOU`, 'orange');
+    hud.notice('⚠ LAST HOSTILES HUNTING YOU', 'orange');
     if (game.mp) net.sendEvent({ k: 'aggro', n, last: 1 });
   }
 }
@@ -4061,7 +4072,7 @@ net.on('ws', (m) => {
   game.waveActive = !!m.active;
   if (Math.abs(game.waveTimer - m.timer) > 0.5 * game.warp) game.waveTimer = m.timer;
 });
-net.on('aggro', (m) => { if (isGuest() && player.alive) hud.notice(m.last ? '⚠ LAST HOSTILES HUNTING YOU' : `⚠ ${m.n} HOSTILE${m.n === 1 ? '' : 'S'} CLOSING IN`, 'orange'); });
+net.on('aggro', (m) => { if (isGuest() && player.alive) hud.notice(m.last === 2 ? '⚠ WAVE OVERTIME · EVERY HOSTILE IS IN A FRENZY' : m.last ? '⚠ LAST HOSTILES HUNTING YOU' : `⚠ ${m.n} HOSTILE${m.n === 1 ? '' : 'S'} CLOSING IN`, m.last === 2 ? 'red' : 'orange'); });
 net.on('waveStart', (m) => {
   if (!isGuest()) return;
   game.wave = m.n;
