@@ -10,7 +10,7 @@ A 3D space-combat game built with three.js where the whole fight takes place in 
 
 Then open http://localhost:8000. You need Python 3 (preinstalled on macOS). The page loads three.js from a CDN, so it needs an internet connection.
 
-To use a different port: `./serve.sh 8080`.
+To use a different port: `./serve.sh <yourport>`.
 
 The **GRAPHICS** button on the main menu (and in the pause menu, mid-run) cycles three presets:
 
