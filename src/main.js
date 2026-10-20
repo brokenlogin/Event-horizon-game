@@ -308,7 +308,7 @@ let invertY = store.get('eh_invert', false);
 let hadLock = false;
 
 window.addEventListener('keydown', (e) => {
-  if (e.target instanceof HTMLInputElement) return;   // typing a room code
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;   // typing a room or save code
   if (e.code === 'Escape' && techTree.visible) { techTree.close(); e.stopImmediatePropagation(); return; }
   if (e.code === 'KeyP' && !e.repeat) togglePerf();   // (T is a flight key: TFGH aim)
   if (['Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'Digit5', 'Digit6', 'Digit7', 'Numpad5', 'Numpad6', 'Numpad7', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyI', 'KeyJ', 'KeyK', 'KeyL', 'KeyT', 'KeyG', 'KeyH', 'KeyQ', 'KeyE', 'KeyZ', 'KeyC'].includes(e.code)) e.preventDefault();
@@ -676,6 +676,8 @@ function startWave(n) {
   game.aggroTimer = 10;   // the first surge a little after the wave arrives
   game.aggroParty = false;
   game.waveAge = 0;
+  // what a save made now would go back to: the run as this round began
+  game.roundStart = { wave: n, score: game.score, scrap: game.scrap, kills: game.kills, levels: { ...game.levels } };
   game.stragglers = false;
   game.frenzy = false;
   const restocked = missiles.ammo < missiles.capacity;
@@ -2095,12 +2097,16 @@ function startGame(opts = {}) {
   clearWorld();
   simWorld = null;
   const multiplayer = !!opts.multiplayer;
+  // a loaded save brings its own difficulty; multiplayer uses the host's
+  const save = opts.save;
+  const runDiff = validDifficulty(save ? save.difficulty : multiplayer ? mp.difficulty : difficulty);
+  const runCustom = save ? sanitizeCustom(save.custom) : multiplayer ? { ...mp.custom } : { ...customDiff };
   Object.assign(game, {
     mp: multiplayer,
     debug: !!opts.debug,
-    difficulty: validDifficulty(multiplayer ? mp.difficulty : difficulty),
-    custom: multiplayer ? { ...mp.custom } : { ...customDiff },
-    tune: buildTune(validDifficulty(multiplayer ? mp.difficulty : difficulty) === 'custom' ? (multiplayer ? mp.custom : customDiff) : null),
+    difficulty: runDiff,
+    custom: runCustom,
+    tune: buildTune(runDiff === 'custom' ? runCustom : null),
     // in multiplayer the host runs the waves; guests follow its clock
     score: 0, wave: 0, kills: 0, mult: 1, comboTimer: 0, spawnQueue: [], spawnTimer: 0, waveTimer: multiplayer ? 12 : 10, waveActive: false,
     time: 0, timeScale: 1, deathTimer: 0, trauma: 0, damageFlash: 0,
@@ -2161,6 +2167,8 @@ function pauseGame() {
   player.thrustAcc.set(0, 0, 0);
   player.throttle = 0;
   document.getElementById('pause-note').classList.toggle('hidden', !game.mp);
+  document.getElementById('btn-save').classList.toggle('hidden', game.mp);   // saves are solo only
+  document.getElementById('save-box').classList.add('hidden');
   audio.silenceEngine();
   setOverlay('pause');
   document.body.style.cursor = '';
@@ -3325,7 +3333,7 @@ function tick(rawDt, render) {
 // ===========================================================================
 // Menus
 // ===========================================================================
-const overlays = ['menu', 'controls', 'pause', 'gameover', 'lobby', 'debug'];
+const overlays = ['menu', 'controls', 'pause', 'gameover', 'lobby', 'debug', 'load'];
 function setOverlay(name) {
   for (const o of overlays) document.getElementById(o).classList.toggle('hidden', o !== name);
 }
@@ -3349,6 +3357,126 @@ function launch() {
 }
 
 bind('btn-play', launch);
+
+// ---------------------------------------------------------------------------
+// Save codes (solo). SAVE in the pause menu writes the run as it stood at the
+// start of the current round (or, between waves, of the next one): round,
+// difficulty, upgrades, scrap, score and kills. It's JSON, deflated and
+// base64url'd behind "EH1.". Upgrades go by name, so codes keep working when
+// new upgrades are added. LOAD GAME on the title screen starts from one.
+// ---------------------------------------------------------------------------
+const SAVE_PREFIX = 'EH1.';
+const DIFF_CODE = { easy: 'e', normal: 'n', hard: 'h', custom: 'c' };
+function saveState() {
+  const r = game.waveActive && game.roundStart
+    ? game.roundStart
+    : { wave: game.wave + 1, score: game.score, scrap: game.scrap, kills: game.kills, levels: game.levels };
+  const l = {};
+  for (const [k, v] of Object.entries(r.levels)) if (v) l[k] = v;
+  const out = { w: r.wave, d: DIFF_CODE[game.difficulty], s: Math.round(r.score), $: Math.floor(r.scrap), k: r.kills, l };
+  if (game.difficulty === 'custom') {   // only the settings that differ from standard
+    const std = sanitizeCustom({});
+    out.c = {};
+    for (const [k, v] of Object.entries(game.custom)) if (v !== std[k]) out.c[k] = v;
+  }
+  return out;
+}
+const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function unb64url(s) {
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+}
+async function encodeSave(obj) {
+  const raw = new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  return SAVE_PREFIX + b64url(new Uint8Array(await new Response(raw).arrayBuffer()));
+}
+/** Code → a checked save ({ wave, difficulty, custom, score, scrap, kills, levels }); throws a message if it's bad. */
+async function decodeSave(code) {
+  code = String(code || '').replace(/\s+/g, '');
+  if (!code.startsWith(SAVE_PREFIX)) throw 'That isn\'t an Event Horizon save code (they start with EH1.).';
+  let raw;
+  try {
+    const text = await new Response(new Blob([unb64url(code.slice(SAVE_PREFIX.length))]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    raw = JSON.parse(text);
+  } catch { throw 'That code is damaged or incomplete. Check it was copied whole.'; }
+  if (!raw || typeof raw !== 'object') throw 'That code is damaged or incomplete.';
+  const num = (v, lo, hi) => THREE.MathUtils.clamp(Math.round(Number(v) || 0), lo, hi);
+  const levels = newUpgradeLevels();
+  for (const [k, v] of Object.entries(raw.l || {})) if (k in levels) levels[k] = num(v, 0, maxLevel(k));
+  return {
+    wave: num(raw.w, 1, 999),
+    difficulty: Object.keys(DIFF_CODE).find((d) => DIFF_CODE[d] === raw.d) || 'normal',
+    custom: raw.c || {},
+    score: num(raw.s, 0, 1e9), scrap: num(raw.$, 0, 1e7), kills: num(raw.k, 0, 1e6),
+    levels,
+  };
+}
+/** Highest level an upgrade key can reach (station upgrade or tech-tree chain). */
+function maxLevel(key) {
+  if (key === 'mk2') return 1;
+  let m = 0;
+  for (const u of UPGRADES) if (u.id === key) m = Math.max(m, u.costs.length);
+  for (const n of TECH) if (n.key === key) m = Math.max(m, n.lvl);
+  return m;
+}
+function launchSave(sv) {
+  audio.init();
+  const fade = document.getElementById('fade');
+  fade.classList.add('on');
+  requestLock();
+  setTimeout(() => {
+    startGame({ save: sv });
+    game.levels = { ...newUpgradeLevels(), ...sv.levels };
+    applyUpgrades();
+    missiles.ammo = missiles.capacity;
+    player.hull = player.maxHull;
+    player.shield = player.maxShield;
+    game.scrap = sv.scrap;
+    game.score = sv.score;
+    game.kills = sv.kills;
+    game.wave = sv.wave - 1;   // the next wave to launch is the saved round
+    // types from earlier rounds aren't news any more (no NEW CONTACT banners for them)
+    for (let n = 1; n < sv.wave; n++) for (const t of waveComposition(n)) game.seenTypes.add(t);
+    if (sv.wave > 14) game.seenTypes.add('seeker2');
+    hud.notice(`SAVE LOADED · ROUND ${sv.wave} · ${DIFFICULTIES[sv.difficulty].name}`, 'green');
+    fade.classList.remove('on');
+  }, 450);
+}
+
+bind('btn-save', async () => {
+  if (game.mp) return;
+  const sv = saveState();
+  const code = await encodeSave(sv);
+  document.getElementById('save-code').value = code;
+  document.getElementById('save-note').textContent = `Round ${sv.w} · copy this code, then use LOAD GAME on the title screen.`;
+  document.getElementById('btn-save-copy').textContent = 'COPY';
+  document.getElementById('save-box').classList.remove('hidden');
+});
+bind('btn-save-copy', () => {
+  const el = document.getElementById('save-code');
+  el.select();
+  const done = () => { document.getElementById('btn-save-copy').textContent = 'COPIED'; };
+  if (navigator.clipboard) navigator.clipboard.writeText(el.value).then(done, () => { document.execCommand('copy'); done(); });
+  else { document.execCommand('copy'); done(); }
+});
+bind('btn-load', () => {
+  setOverlay('load');
+  document.getElementById('load-msg').textContent = '';
+  document.getElementById('load-code').focus();
+});
+bind('btn-load-back', () => setOverlay('menu'));
+bind('btn-load-go', async () => {
+  const msg = document.getElementById('load-msg');
+  try {
+    const sv = await decodeSave(document.getElementById('load-code').value);
+    msg.classList.remove('error');
+    msg.textContent = '';
+    launchSave(sv);
+  } catch (err) {
+    msg.classList.add('error');
+    msg.textContent = typeof err === 'string' ? err : 'That code couldn\'t be read.';
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Debug launch (solo): pick the starting wave, upgrade levels and scrap
@@ -3461,7 +3589,7 @@ sensEl.addEventListener('input', () => { sensitivity = parseFloat(sensEl.value);
 invEl.addEventListener('change', () => { invertY = invEl.checked; store.set('eh_invert', invertY); });
 
 window.addEventListener('keydown', (e) => {
-  if (e.target instanceof HTMLInputElement) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (e.code === 'Enter') {
     if (state === 'menu' && !lobbyOpen()) launch();
     else if (state === 'paused') resumeGame();

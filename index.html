@@ -161,6 +161,7 @@
         </div>
         <button id="btn-play" class="btn primary">LAUNCH</button>
         <button id="btn-multi" class="btn">MULTIPLAYER</button>
+        <button id="btn-load" class="btn">LOAD GAME</button>
         <button id="btn-controls" class="btn">FLIGHT MANUAL</button>
         <button id="btn-quality" class="btn small">GRAPHICS: HIGH</button>
         <button id="btn-debug" class="btn small">DEBUG LAUNCH</button>
@@ -313,7 +314,24 @@
       <div id="pause-note" class="lobby-hint hidden">Multiplayer: the game keeps running while you're paused.</div>
       <button id="btn-resume" class="btn primary">RESUME</button>
       <button id="btn-quality-pause" class="btn">GRAPHICS: HIGH</button>
+      <button id="btn-save" class="btn">SAVE</button>
+      <div id="save-box" class="save-box hidden">
+        <div id="save-note" class="lobby-hint"></div>
+        <textarea id="save-code" class="save-code" readonly rows="3" spellcheck="false"></textarea>
+        <button id="btn-save-copy" class="btn small">COPY</button>
+      </div>
       <button id="btn-quit" class="btn">ABANDON MISSION</button>
+    </div>
+  </div>
+
+  <div id="load" class="overlay hidden">
+    <div class="card center">
+      <h2>LOAD GAME</h2>
+      <div class="lobby-hint">Paste a save code (from SAVE in the pause menu). The run picks up at the start of the saved round, with its upgrades, scrap, score and difficulty.</div>
+      <textarea id="load-code" class="save-code" rows="3" spellcheck="false" placeholder="EH1.…"></textarea>
+      <div id="load-msg" class="lobby-hint"></div>
+      <button id="btn-load-go" class="btn primary">LOAD</button>
+      <button id="btn-load-back" class="btn">BACK</button>
     </div>
   </div>
 

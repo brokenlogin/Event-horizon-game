@@ -91,6 +91,10 @@ Type in a number box to go past the end of its slider: up to 2000% for spawns, r
 
 Enemy counts stack with crew scaling in multiplayer. Enemy damage covers their cannon fire, seeker rams and collisions with enemy ships. The black hole's tides and the accretion disk hurt the same on every setting. Each difficulty keeps its own best score. In multiplayer the host picks the difficulty in the waiting room and everyone flies with it.
 
+## Saving
+
+Solo runs can be saved as a short code (about 130–150 characters). Press Esc and pick **SAVE**, then **COPY**. The code holds the run as it stood at the **start of the current round** (or of the next round, if you save between waves): the round, difficulty (custom and advanced settings included), every upgrade and tech level, scrap, score and kills. Scrap, score and upgrades gained during the round aren't in it. To continue, pick **LOAD GAME** on the title screen and paste the code. The run starts docked at Kepler Station with that round coming up. Codes start with `EH1.` and are deflated JSON. Upgrades are stored by name, so codes keep working after new upgrades are added. Saving isn't available in multiplayer.
+
 ## Multiplayer (up to 8 pilots)
 
 Everyone opens the game and clicks **MULTIPLAYER**, then sets a **callsign** (it's remembered). Pick a tab:

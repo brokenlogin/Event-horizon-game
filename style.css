@@ -555,3 +555,9 @@ kbd { font-family: var(--font-display); font-size: 12px; padding: 4px 9px; borde
 .cd-hint { font-size: 12px; color: rgba(217, 246, 255, 0.55); text-align: left; }
 .cd-toggle .btn { min-width: 0; padding: 8px 0; width: 92px; pointer-events: auto; }
 .cd-toggle .btn.on { color: #001018; background: var(--cyan); border-color: var(--cyan); opacity: 1; box-shadow: 0 0 18px rgba(94, 242, 255, 0.45); }
+
+/* save / load codes */
+.save-box { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+.save-code { pointer-events: auto; width: 100%; box-sizing: border-box; resize: none; padding: 8px 10px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.4; word-break: break-all; color: #d9f6ff; background: rgba(5, 20, 32, 0.8); border: 1px solid var(--cyan-dim); outline: none; user-select: text; -webkit-user-select: text; }
+.save-code:focus { border-color: var(--cyan); }
+#load-msg.error { color: var(--red); }
